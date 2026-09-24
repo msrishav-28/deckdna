@@ -1,42 +1,50 @@
 # DeckDNA
 
-A self-hosted AI presentation generator that learns your design style from existing decks and generates new slides in that exact style as fully editable `.pptx` files.
+A self-hosted AI presentation generator that learns your design style from your existing decks and generates new slides in that exact style as fully editable `.pptx` files.
 
-## What It Does
+**Status: early build (pre-MVP).** The full specification and roadmap live in [DECKDNA_AGENT_BLUEPRINT.md](DECKDNA_AGENT_BLUEPRINT.md). This repository is being built milestone by milestone; the sections below describe what works today.
 
-- **Extract Design DNA**: Feed it your existing PPTX/PDF decks -> it extracts colors, fonts, layouts, and content rules into reusable style guides.
-- **Template Library**: Auto-categorizes slides by type (title, agenda, comparison, stat callout, quote) for retrieval at generation time.
-- **Generate Decks**: Enter a topic -> AI creates outline -> picks matching templates -> fills content -> exports as editable `.pptx`.
-- **Critique Loop**: Renders slides, feeds them back to a vision-LLM for alignment/overlap/hierarchy fixes before final export.
+## What works today
 
-## Stack (All Free to Start)
+- **`scripts/parse_deck.py`** — reads a `.pptx` deck and writes `output/raw_deck.json`: a structured inventory of every slide's shapes, text runs, fonts, colors, and theme (raw material for style learning). Anything the parser cannot fully extract (chart internals, table cells) is recorded explicitly as a note or warning rather than dropped.
+- **`scripts/make_fixture_deck.py`** — generates a small synthetic sample deck (no real content) used by the automated tests.
+- **`tests/`** — an automated test suite run with pytest.
 
-| Layer | Tool |
-|---|---|
-| Vision + Text LLM | Gemini 2.0/2.5 Flash (free tier: 15 RPM / 1,500 RPD) |
-| HTML -> PPTX | `html-to-pptx` (MIT, Design-Arena) |
-| PPTX Parsing | `python-pptx` (MIT) |
-| Database | Supabase Free (500MB, pgvector) |
-| Frontend | Vercel Hobby (free) |
-| Backend | FastAPI + Cloud Run free tier |
+## What is planned next
 
-## Quick Start
+Slide rendering to images, style-guide extraction (palette, typography, layout rules), a searchable template library, AI-generated outlines and decks, a visual critique loop, editable PPTX export, and a web UI. See the blueprint for the complete architecture and milestone order.
+
+## Setup
+
+Requires Python 3.11 or newer.
 
 ```bash
-git clone https://github.com/msrishav-28/deckdna.git
-cd deckdna
+python -m venv .venv
+source .venv/bin/activate        # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-cp .env.example .env
-python scripts/extract_style.py --input ./sample_decks
-python app/main.py
+
+# Generate the synthetic sample deck and parse it
+python scripts/make_fixture_deck.py
+python scripts/parse_deck.py --input tests/fixtures/sample_deck.pptx
+
+# Run the tests
+pytest
 ```
 
-## Docs
+Cloud AI features (later milestones) need a Gemini API key; copy `.env.example` to `.env` and add your key when you get there. The key is never committed.
 
-- [Getting Started](getting_started.md)
-- [Roadmap](docs/roadmap.md)
-- [Architecture](docs/research/architecture.md)
-- [Design Learning Strategy](docs/research/design-learning.md)
-- [Open-Source Landscape](docs/research/open-source-landscape.md)
+## Project layout
 
-MIT License - Built by M S Rishav Subhin
+```text
+core/                 Parsing and domain logic (schemas, PPTX parser)
+scripts/              Command-line entry points
+tests/                Pytest suite and synthetic fixtures
+sample_decks/         Your decks go here (never committed)
+output/               Generated JSON and decks (never committed)
+style_guides/         Extracted style guides (never committed)
+temp/                 Scratch space (never committed)
+```
+
+## License
+
+MIT — see [LICENSE](LICENSE). Built by M S Rishav Subhin.

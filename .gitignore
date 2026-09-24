@@ -1,0 +1,23 @@
+# Virtual environments
+.venv/
+
+# Python artifacts
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Generated fixture (rebuild with: python scripts/make_fixture_deck.py)
+tests/fixtures/sample_deck.pptx
+
+# Secrets — never commit
+.env
+
+# User data — never commit decks or extracted styles (blueprint §16)
+sample_decks/*
+!sample_decks/.gitkeep
+style_guides/*
+!style_guides/.gitkeep
+output/*
+!output/.gitkeep
+temp/*
+!temp/.gitkeep
