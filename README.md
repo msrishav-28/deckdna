@@ -1,5 +1,11 @@
 # DeckDNA
 
+[![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![python-pptx](https://img.shields.io/badge/parsing-python--pptx%201.0.2-6E8E3D)](https://python-pptx.readthedocs.io/)
+[![Pydantic](https://img.shields.io/badge/schemas-Pydantic%202.10-E92063?logo=pydantic&logoColor=white)](https://docs.pydantic.dev/)
+[![pytest](https://img.shields.io/badge/tests-pytest%208.3-0A9EDC?logo=pytest&logoColor=white)](https://docs.pytest.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 A self-hosted AI presentation generator that learns your design style from your existing decks and generates new slides in that exact style as fully editable `.pptx` files.
 
 **Status: early build (pre-MVP).** The full specification and roadmap live in [DECKDNA_AGENT_BLUEPRINT.md](DECKDNA_AGENT_BLUEPRINT.md). This repository is being built milestone by milestone; the sections below describe what works today.
