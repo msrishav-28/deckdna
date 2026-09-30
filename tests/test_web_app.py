@@ -7,12 +7,17 @@ from __future__ import annotations
 
 import json
 import time
+from io import BytesIO
 
 import pytest
 from fastapi.testclient import TestClient
+from pptx import Presentation
 
 from app import config, db
+from app.generation import run_generation
 from app.main import create_app
+from core.critique import CritiqueReport
+from core.generation import DeckBrief, GeneratedDeck, GenerationPlan
 from core.style_guide import StyleGuide
 from core.templates import load_templates
 
@@ -376,3 +381,202 @@ def test_outline_rejects_invalid_requests(client, fixture_deck):
     )
     assert unknown.status_code == 404
     assert "deck_nope" in unknown.json()["detail"]
+
+
+# -- generation -------------------------------------------------------------
+
+
+def _plan_outline(client, deck_id, **overrides):
+    request = {
+        "topic": "Q4 Launch Plan",
+        "audience": "Leadership",
+        "slide_count": 6,
+        "style_guide_id": deck_id,
+        "notes": OUTLINE_NOTES,
+    }
+    request.update(overrides)
+    response = client.post("/v1/generations/outline", json=request)
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+def _generate(client, deck_id, outline_id, **overrides):
+    request = {
+        "style_guide_id": deck_id,
+        "approved_outline_id": outline_id,
+        "output_format": "pptx",
+        "enable_critique": True,
+    }
+    request.update(overrides)
+    return client.post("/v1/generations", json=request)
+
+
+def _download(client, generation_id, artifact):
+    return client.get(f"/v1/generations/{generation_id}/download/{artifact}")
+
+
+def test_generation_runs_and_serves_downloads(client, fixture_deck):
+    deck_id = _prepare_style_guide(client, fixture_deck)
+    outline = _plan_outline(client, deck_id)
+
+    response = _generate(client, deck_id, outline["outline_id"])
+    assert response.status_code == 202, response.text
+    created = response.json()
+    assert created["generation_id"].startswith("gen_")
+    assert created["status"] == "queued"
+    assert created["job_id"].startswith("job_")
+
+    job = _wait_for_job(client, created["job_id"])
+    assert job["status"] == "completed", job
+    assert job["progress"] == 100
+    result = job["result"]
+    assert result["generation_id"] == created["generation_id"]
+    assert result["outline_id"] == outline["outline_id"]
+    assert result["style_guide_id"] == deck_id
+    assert result["output_format"] == "pptx"
+    assert result["deck_title"] == outline["deck_title"]
+    assert result["slide_count"] == len(outline["slides"])
+    assert result["generator"] == "deterministic"
+    assert result["critique"]["requested"] is True
+    assert result["critique"]["iterations"] >= 1
+    assert result["critique"]["threshold"] > 0
+    assert set(result["artifacts"]) == {"pptx", "html", "json", "critique"}
+    assert (
+        job["output_url"]
+        == f"/v1/generations/{created['generation_id']}/download/pptx"
+    )
+
+    # the generated deck honors the approved outline exactly
+    content = _download(client, created["generation_id"], "json")
+    assert content.status_code == 200, content.text
+    deck = GeneratedDeck.model_validate_json(content.content)
+    assert [slide.model_dump() for slide in deck.plan.slides] == outline["slides"]
+    assert deck.style_guide_id == deck_id
+
+    # the preview is self-contained HTML of the same deck
+    preview = _download(client, created["generation_id"], "html")
+    assert preview.status_code == 200
+    assert outline["deck_title"] in preview.text
+    for slide in deck.slides:
+        assert f'id="{slide.slide_id}"' in preview.text
+
+    # the critique artifact is the full evidence-bearing report
+    critique_response = _download(client, created["generation_id"], "critique")
+    assert critique_response.status_code == 200
+    report = CritiqueReport.model_validate_json(critique_response.content)
+    assert report.score_before == result["critique"]["score_before"]
+    assert report.score_after == result["critique"]["score_after"]
+    assert report.stop_reason == result["critique"]["stop_reason"]
+
+    # the pptx download is a real, openable PowerPoint file
+    pptx = _download(client, created["generation_id"], "pptx")
+    assert pptx.status_code == 200
+    assert pptx.content[:2] == b"PK"
+    presentation = Presentation(BytesIO(pptx.content))
+    assert len(presentation.slides) == len(outline["slides"])
+    assert "attachment" in pptx.headers["content-disposition"]
+
+
+def test_generation_without_critique_skips_the_loop(client, fixture_deck):
+    deck_id = _prepare_style_guide(client, fixture_deck)
+    outline = _plan_outline(client, deck_id)
+
+    response = _generate(
+        client, deck_id, outline["outline_id"], enable_critique=False
+    )
+    assert response.status_code == 202, response.text
+    created = response.json()
+
+    job = _wait_for_job(client, created["job_id"])
+    assert job["status"] == "completed", job
+    assert job["result"]["critique"] == {"requested": False}
+    assert set(job["result"]["artifacts"]) == {"pptx", "html", "json"}
+    assert _download(client, created["generation_id"], "critique").status_code == 404
+    assert _download(client, created["generation_id"], "pptx").status_code == 200
+
+
+def test_generation_rejects_unknown_outline_and_mismatched_guide(
+    client, fixture_deck
+):
+    deck_id = _prepare_style_guide(client, fixture_deck)
+    outline = _plan_outline(client, deck_id)
+
+    unknown = _generate(client, deck_id, "outline_missing")
+    assert unknown.status_code == 404
+    assert "outline_missing" in unknown.json()["detail"]
+
+    mismatch = _generate(client, "deck_other", outline["outline_id"])
+    assert mismatch.status_code == 400
+    assert "deck_other" in mismatch.json()["detail"]
+
+
+def test_generation_rejects_invalid_requests(client, fixture_deck):
+    deck_id = _prepare_style_guide(client, fixture_deck)
+    outline = _plan_outline(client, deck_id)
+    base = {
+        "style_guide_id": deck_id,
+        "approved_outline_id": outline["outline_id"],
+    }
+    cases = [
+        {k: v for k, v in base.items() if k != "style_guide_id"},
+        {k: v for k, v in base.items() if k != "approved_outline_id"},
+        {**base, "output_format": "pdf"},
+        # pydantic's lax mode maps "true"/"false" strings, but arbitrary
+        # text must not silently become a boolean
+        {**base, "enable_critique": "maybe"},
+        {**base, "surprise": 1},
+    ]
+    for case in cases:
+        response = client.post("/v1/generations", json=case)
+        assert response.status_code == 422, (case, response.text)
+
+
+def test_generation_download_unknown_and_unsafe_ids(client):
+    assert _download(client, "gen_missing", "pptx").status_code == 404
+    assert _download(client, "gen..name", "pptx").status_code == 404
+    assert (
+        client.get(
+            "/v1/generations/gen_x/download/..%2F..%2Fstyle_guides%2Fdeck.json"
+        ).status_code
+        == 404
+    )
+    assert _download(client, "gen_x", "zip").status_code == 404
+
+
+def test_generation_job_reports_critique_iteration_stages(client, fixture_deck):
+    deck_id = _prepare_style_guide(client, fixture_deck)
+    outline = _plan_outline(client, deck_id)
+
+    stored = db.get_outline(outline["outline_id"])
+    style_guide = StyleGuide.model_validate_json(
+        (config.STYLE_GUIDES_DIR / f"{deck_id}.json").read_text(encoding="utf-8")
+    )
+    templates = load_templates(config.STYLE_GUIDES_DIR / f"{deck_id}_templates.json")
+
+    stages = []
+
+    def report(stage, progress):
+        stages.append((stage, progress))
+
+    result = run_generation(
+        "gen_stagecheck",
+        outline["outline_id"],
+        DeckBrief.model_validate(stored["brief"]),
+        GenerationPlan.model_validate(stored["plan"]),
+        style_guide,
+        templates,
+        True,
+        report,
+    )
+
+    assert stages[0][0] == "generating_content"
+    assert "critic_iteration_1" in [stage for stage, _ in stages]
+    assert stages[-1][0] == "finalizing"
+    assert [progress for _, progress in stages] == sorted(
+        progress for _, progress in stages
+    )
+    assert result["generation_id"] == "gen_stagecheck"
+    assert (config.GENERATED_DIR / "gen_stagecheck" / "deck.pptx").is_file()
+    assert (config.GENERATED_DIR / "gen_stagecheck" / "preview.html").is_file()
+    assert (config.GENERATED_DIR / "gen_stagecheck" / "content.json").is_file()
+    assert (config.GENERATED_DIR / "gen_stagecheck" / "critique.json").is_file()

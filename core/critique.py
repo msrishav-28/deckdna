@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import math
 from pathlib import Path
-from typing import Dict, List, Literal, Mapping, Optional, Protocol, Sequence, Tuple, runtime_checkable
+from typing import Callable, Dict, List, Literal, Mapping, Optional, Protocol, Sequence, Tuple, runtime_checkable
 
 from pydantic import BaseModel, Field
 
@@ -692,6 +692,7 @@ def run_critique_loop(
     images: Optional[Mapping[str, Path]] = None,
     max_iterations: int = MAX_CRITIQUE_ITERATIONS,
     threshold: int = CRITIQUE_THRESHOLD,
+    on_iteration: Optional[Callable[[int], None]] = None,
 ) -> Tuple[GeneratedDeck, CritiqueReport]:
     by_id = {record.template_id: record for record in templates}
     current = deck.model_copy(deep=True)
@@ -702,6 +703,8 @@ def run_critique_loop(
     baseline: Optional[DeckAudit] = None
     stop_reason = "max_iterations_reached"
     for number in range(1, max_iterations + 1):
+        if on_iteration is not None:
+            on_iteration(number)
         audit = audit_deck(current, style_guide, templates)
         if baseline is None:
             baseline = audit
