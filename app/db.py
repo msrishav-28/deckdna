@@ -54,6 +54,20 @@ CREATE TABLE IF NOT EXISTS jobs (
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS style_guide_overrides (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    style_guide_id TEXT NOT NULL,
+    patch_json TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS outlines (
+    outline_id TEXT PRIMARY KEY,
+    style_guide_id TEXT NOT NULL,
+    deck_id TEXT,
+    brief_json TEXT NOT NULL,
+    plan_json TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
 """
 
 
@@ -192,3 +206,70 @@ def get_job(job_id: str) -> Optional[dict]:
     raw = job.pop("result_json", None)
     job["result"] = json.loads(raw) if raw else None
     return job
+
+
+# -- style guide overrides --------------------------------------------------
+
+
+def insert_style_guide_override(style_guide_id: str, patch: dict) -> None:
+    with _connect() as conn:
+        conn.execute(
+            "INSERT INTO style_guide_overrides (style_guide_id, patch_json, "
+            "created_at) VALUES (?, ?, ?)",
+            (style_guide_id, json.dumps(patch), _now()),
+        )
+
+
+def list_style_guide_overrides(style_guide_id: str) -> list:
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT id, patch_json, created_at FROM style_guide_overrides "
+            "WHERE style_guide_id = ? ORDER BY id",
+            (style_guide_id,),
+        ).fetchall()
+    return [
+        {
+            "id": row["id"],
+            "patch": json.loads(row["patch_json"]),
+            "created_at": row["created_at"],
+        }
+        for row in rows
+    ]
+
+
+# -- outlines ---------------------------------------------------------------
+
+
+def insert_outline(
+    outline_id: str,
+    style_guide_id: str,
+    deck_id: str,
+    brief: dict,
+    plan: dict,
+) -> None:
+    with _connect() as conn:
+        conn.execute(
+            "INSERT INTO outlines (outline_id, style_guide_id, deck_id, "
+            "brief_json, plan_json, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+            (
+                outline_id,
+                style_guide_id,
+                deck_id,
+                json.dumps(brief),
+                json.dumps(plan),
+                _now(),
+            ),
+        )
+
+
+def get_outline(outline_id: str) -> Optional[dict]:
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT * FROM outlines WHERE outline_id = ?", (outline_id,)
+        ).fetchone()
+    outline = _row_dict(row)
+    if outline is None:
+        return None
+    outline["brief"] = json.loads(outline.pop("brief_json"))
+    outline["plan"] = json.loads(outline.pop("plan_json"))
+    return outline

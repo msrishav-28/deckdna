@@ -1,9 +1,11 @@
-"""Web app tests: upload, background extraction, job/deck status endpoints
-and restart recovery. Everything runs against temporary directories, so no
-repository artifacts are touched."""
+"""Web app tests: upload, background extraction, job/deck status endpoints,
+style guide reading and editing, outline planning and restart recovery.
+Everything runs against temporary directories, so no repository artifacts
+are touched."""
 
 from __future__ import annotations
 
+import json
 import time
 
 import pytest
@@ -11,6 +13,8 @@ from fastapi.testclient import TestClient
 
 from app import config, db
 from app.main import create_app
+from core.style_guide import StyleGuide
+from core.templates import load_templates
 
 POLL_TIMEOUT = 60.0
 
@@ -74,9 +78,6 @@ def test_upload_runs_extraction_and_reports_deck(client, fixture_deck):
     assert deck["style_guide_id"] == created["deck_id"]
     assert deck["error"] is None
     assert deck["job"]["status"] == "completed"
-
-    from core.style_guide import StyleGuide
-    from core.templates import load_templates
 
     guide_path = config.STYLE_GUIDES_DIR / f"{created['deck_id']}.json"
     templates_path = config.STYLE_GUIDES_DIR / f"{created['deck_id']}_templates.json"
@@ -162,3 +163,216 @@ def test_restart_marks_interrupted_jobs_and_decks_failed(client):
     assert job["status"] == "failed"
     assert "restarted" in job["error"]
     assert db.get_deck("deck_stale")["status"] == "failed"
+
+
+# -- style guide ------------------------------------------------------------
+
+
+def _prepare_style_guide(client, fixture_deck):
+    """Upload the fixture deck and wait until its style guide is learned."""
+    response = _upload_deck(client, fixture_deck)
+    assert response.status_code == 202, response.text
+    created = response.json()
+    job = _wait_for_job(client, created["job_id"])
+    assert job["status"] == "completed", job
+    return created["deck_id"]
+
+
+def test_style_guide_read_returns_learned_guide(client, fixture_deck):
+    deck_id = _prepare_style_guide(client, fixture_deck)
+    response = client.get(f"/v1/style-guides/{deck_id}")
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["overrides"] == []
+
+    guide = StyleGuide.model_validate(body["style_guide"])
+    deck = client.get(f"/v1/decks/{deck_id}").json()
+    assert guide.source_slide_count == deck["slide_count"]
+    assert guide.typography.title is not None
+    assert guide.palette
+
+
+def test_style_guide_patch_applies_persists_and_records(client, fixture_deck):
+    deck_id = _prepare_style_guide(client, fixture_deck)
+    before = client.get(f"/v1/style-guides/{deck_id}").json()["style_guide"]
+    accents_before = [e["hex"] for e in before["palette"] if e["usage"] == "accent"]
+    assert accents_before  # the fixture deck yields accent entries
+
+    patch = {
+        "typography": {
+            "title": {
+                "font_family": "Georgia",
+                "font_size_pt": 40,
+                "color_hex": "#a1b2c3",
+            }
+        },
+        "content_rules": {"max_bullets_per_slide": 4, "preferred_density": "low"},
+        "layout_grid": {"margins_px": {"left_px": 96}},
+        "palette": [{"hex": "#112233", "usage": "accent"}],
+    }
+    response = client.patch(f"/v1/style-guides/{deck_id}", json=patch)
+    assert response.status_code == 200, response.text
+    body = response.json()
+    guide = body["style_guide"]
+
+    assert guide["typography"]["title"]["font_family"] == "Georgia"
+    assert guide["typography"]["title"]["font_size_pt"] == 40
+    assert guide["typography"]["title"]["color_hex"] == "#A1B2C3"  # normalized
+    # learned statistics survive an override untouched
+    assert (
+        guide["typography"]["title"]["provenance"]
+        == before["typography"]["title"]["provenance"]
+    )
+    assert (
+        guide["typography"]["title"]["sample_count"]
+        == before["typography"]["title"]["sample_count"]
+    )
+    assert guide["content_rules"]["max_bullets_per_slide"] == 4
+    assert guide["content_rules"]["preferred_density"] == "low"
+    assert guide["layout_grid"]["margins_px"]["left_px"] == 96
+    assert (
+        guide["layout_grid"]["margins_px"]["top_px"]
+        == before["layout_grid"]["margins_px"]["top_px"]
+    )
+    # every entry of the usage moves together, or the renderer could
+    # silently keep showing the old color
+    accent_after = [e["hex"] for e in guide["palette"] if e["usage"] == "accent"]
+    assert accent_after == ["#112233"] * len(accents_before)
+
+    assert body["applied"]["typography"]["title"]["color_hex"] == "#A1B2C3"
+    assert len(body["overrides"]) == 1
+    assert body["overrides"][0]["patch"]["content_rules"]["max_bullets_per_slide"] == 4
+
+    # the effective guide is on disk, not only in the response
+    on_disk = json.loads(
+        (config.STYLE_GUIDES_DIR / f"{deck_id}.json").read_text(encoding="utf-8")
+    )
+    assert on_disk["content_rules"]["max_bullets_per_slide"] == 4
+
+    # a second, partial patch keeps earlier overrides and appends to the trail
+    second = client.patch(
+        f"/v1/style-guides/{deck_id}",
+        json={"content_rules": {"max_words_per_bullet": 10}},
+    )
+    assert second.status_code == 200, second.text
+    second_body = second.json()
+    assert second_body["style_guide"]["content_rules"]["max_bullets_per_slide"] == 4
+    assert second_body["style_guide"]["content_rules"]["max_words_per_bullet"] == 10
+    assert len(second_body["overrides"]) == 2
+
+    re_get = client.get(f"/v1/style-guides/{deck_id}").json()
+    assert re_get["style_guide"]["content_rules"]["max_words_per_bullet"] == 10
+    assert len(re_get["overrides"]) == 2
+
+
+def test_style_guide_patch_rejects_invalid_values(client, fixture_deck):
+    deck_id = _prepare_style_guide(client, fixture_deck)
+
+    empty = client.patch(f"/v1/style-guides/{deck_id}", json={})
+    assert empty.status_code == 400, empty.text
+
+    bad_patches = [
+        {"typography": {"title": {"color_hex": "#12345"}}},
+        {"typography": {"title": {"font_weight": "heavy"}}},
+        {"typography": {"title": {"font_size_pt": 0}}},
+        {"content_rules": {"max_bullets_per_slide": 99}},
+        {"content_rules": {"preferred_density": "extreme"}},
+        {"layout_grid": {"margins_px": {"left_px": -1}}},
+        {"unknown_field": True},
+    ]
+    for patch in bad_patches:
+        response = client.patch(f"/v1/style-guides/{deck_id}", json=patch)
+        assert response.status_code == 422, (patch, response.text)
+
+    guide = client.get(f"/v1/style-guides/{deck_id}").json()
+    assert guide["overrides"] == []  # rejected edits are never recorded
+
+
+def test_style_guide_unknown_and_unsafe_ids_return_404(client):
+    for style_guide_id in ("deck_missing", "..", "evil..name", "..%2Fdeckdna"):
+        path = f"/v1/style-guides/{style_guide_id}"
+        assert client.get(path).status_code == 404, style_guide_id
+        response = client.patch(
+            path, json={"content_rules": {"max_bullets_per_slide": 3}}
+        )
+        assert response.status_code == 404, style_guide_id
+
+
+# -- outline ----------------------------------------------------------------
+
+
+OUTLINE_NOTES = [
+    "Launch the analytics workflow for enterprise teams",
+    "42%: pilot conversion in the first month",
+    "> Ship monthly, learn weekly - Platform team",
+    "Improve activation through guided onboarding",
+]
+
+
+def test_outline_plans_and_persists(client, fixture_deck):
+    deck_id = _prepare_style_guide(client, fixture_deck)
+    request = {
+        "topic": "Q4 Launch Plan",
+        "audience": "Leadership",
+        "slide_count": 6,
+        "style_guide_id": deck_id,
+        "notes": OUTLINE_NOTES,
+    }
+    response = client.post("/v1/generations/outline", json=request)
+    assert response.status_code == 200, response.text
+    body = response.json()
+
+    assert body["outline_id"].startswith("outline_")
+    assert body["style_guide_id"] == deck_id
+    assert body["deck_title"] == "Q4 Launch Plan"
+    assert body["audience"] == "Leadership"
+    slides = body["slides"]
+    assert body["slide_count"] == len(slides) == 6
+    assert body["warnings"] == []
+    assert slides[0]["slide_type"] == "title"
+    assert slides[0]["title"] == "Q4 Launch Plan"
+    assert [s["slide_number"] for s in slides] == list(range(1, 7))
+    assert all(s["intent"] for s in slides)
+    template_ids = {
+        t.template_id
+        for t in load_templates(config.STYLE_GUIDES_DIR / f"{deck_id}_templates.json")
+    }
+    assert {s["template_id"] for s in slides} <= template_ids
+
+    # the plan is persisted for the generation step that follows approval
+    stored = db.get_outline(body["outline_id"])
+    assert stored is not None
+    assert stored["style_guide_id"] == deck_id
+    assert stored["deck_id"] == deck_id
+    assert stored["brief"]["topic"] == "Q4 Launch Plan"
+    assert stored["brief"]["notes"] == OUTLINE_NOTES
+    assert len(stored["plan"]["slides"]) == 6
+
+    # planning is deterministic: the same brief plans the same storyline
+    again = client.post("/v1/generations/outline", json=request).json()
+    assert again["outline_id"] != body["outline_id"]
+    assert again["slides"] == slides
+
+
+def test_outline_rejects_invalid_requests(client, fixture_deck):
+    deck_id = _prepare_style_guide(client, fixture_deck)
+    base = {"topic": "Roadmap", "style_guide_id": deck_id, "slide_count": 5}
+    cases = [
+        {**base, "topic": ""},
+        {**base, "topic": "   "},
+        {**base, "topic": "x" * 201},
+        {**base, "slide_count": 0},
+        {**base, "slide_count": 51},
+        {k: v for k, v in base.items() if k != "style_guide_id"},
+        {**base, "surprise": 1},
+        {**base, "notes": ["x" * 501]},
+    ]
+    for case in cases:
+        response = client.post("/v1/generations/outline", json=case)
+        assert response.status_code == 422, (case, response.text)
+
+    unknown = client.post(
+        "/v1/generations/outline", json={**base, "style_guide_id": "deck_nope"}
+    )
+    assert unknown.status_code == 404
+    assert "deck_nope" in unknown.json()["detail"]

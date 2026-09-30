@@ -12,7 +12,7 @@ import logging
 from fastapi import FastAPI
 
 from app import db
-from app.api import decks
+from app.api import decks, generation, style_guides
 from app.jobs import JobQueue
 
 
@@ -30,6 +30,8 @@ def create_app() -> FastAPI:
     )
     app.state.queue = queue
     app.include_router(decks.router)
+    app.include_router(style_guides.router)
+    app.include_router(generation.router)
     return app
 
 

@@ -8,9 +8,21 @@ Tests monkeypatch these attributes to run against temporary directories.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+
+_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
+
+
+def is_safe_id(value: str) -> bool:
+    """True when an id can be used as a bare file name inside a store
+    directory. Ids arrive from client URLs and request bodies, so anything
+    that could resolve outside the directory (path separators, parent
+    references) is rejected before it ever touches the filesystem."""
+    return bool(_ID_RE.fullmatch(value)) and ".." not in value
+
 
 UPLOADS_DIR = REPO_ROOT / "output" / "uploads"
 GENERATED_DIR = REPO_ROOT / "output" / "generated"
