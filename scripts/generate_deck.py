@@ -1,5 +1,6 @@
-"""Generate a slide deck (outline + content + HTML preview) from a topic
-and notes, in the style learned from an earlier --input deck.
+"""Generate a slide deck (outline + content + HTML preview, plus an
+editable PowerPoint export with --pptx) from a topic and notes, in the
+style learned from an earlier --input deck.
 
 Planning and writing are deterministic by default; with --use-llm and a
 configured Gemini API key the drafts come from the model but must pass the
@@ -18,6 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from core.generation import DeckBrief, generate_deck
 from core.html_renderer import render_deck_html, render_report
+from core.pptx_export import export_deck_pptx
 from core.style_guide import StyleGuide
 from core.templates import load_templates
 from core.vision import load_dotenv
@@ -70,6 +72,11 @@ def main() -> int:
         "--use-llm",
         action="store_true",
         help="Draft the outline and content with Gemini (needs GEMINI_API_KEY)",
+    )
+    ap.add_argument(
+        "--pptx",
+        action="store_true",
+        help="Also export an editable PowerPoint file (native text and shapes)",
     )
     args = ap.parse_args()
 
@@ -136,6 +143,11 @@ def main() -> int:
     json_path = out_dir / f"{name}_content.json"
     html_path.write_text(render_deck_html(deck, style_guide, templates), encoding="utf-8")
     json_path.write_text(deck.model_dump_json(indent=2), encoding="utf-8")
+    pptx_path = None
+    if args.pptx:
+        pptx_path = export_deck_pptx(
+            deck, style_guide, templates, out_dir / f"{name}.pptx"
+        )
 
     print(f"Deck: {deck.plan.deck_title}")
     if deck.brief.audience:
@@ -156,6 +168,8 @@ def main() -> int:
         print("No warnings: every slide fits its template.")
     print(f"HTML preview written to {html_path}")
     print(f"Content JSON written to {json_path}")
+    if pptx_path is not None:
+        print(f"Editable PPTX written to {pptx_path}")
     return 0
 
 
