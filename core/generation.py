@@ -659,22 +659,19 @@ def generate_deck(
     material = analyze_material(
         brief.notes, style_guide.content_rules.max_words_per_bullet
     )
-    generator_name = "deterministic"
-    plan = None
-    slides: Optional[List[SlideContent]] = None
-    deck_warnings: List[str] = []
+    plan_warnings: List[str] = []
+    content_warnings: List[str] = []
+    content_from_llm = False
     if text_provider is not None:
         from core.llm import content_with_llm, plan_with_llm
 
-        plan = plan_with_llm(text_provider, brief, templates, material)
-        slides, deck_warnings = content_with_llm(
+        plan, plan_warnings = plan_with_llm(text_provider, brief, templates, material)
+        slides, content_from_llm, content_warnings = content_with_llm(
             text_provider, brief, plan, templates, material, style_guide
         )
-        generator_name = "gemini"
-    if plan is None:
+    else:
         plan = OutlineGenerator().plan(brief, templates, material)
-    if slides is None:
-        slides, deck_warnings = ContentGenerator().generate(
+        slides, content_warnings = ContentGenerator().generate(
             brief, plan, templates, material, style_guide
         )
     return GeneratedDeck(
@@ -682,6 +679,6 @@ def generate_deck(
         plan=plan,
         slides=slides,
         style_guide_id=style_guide.deck_id,
-        generator=generator_name,
-        warnings=deck_warnings,
+        generator="gemini" if content_from_llm else "deterministic",
+        warnings=plan_warnings + content_warnings,
     )
