@@ -2,10 +2,14 @@
 editable PowerPoint export with --pptx) from a topic and notes, in the
 style learned from an earlier --input deck.
 
-Planning and writing are deterministic by default; with --use-llm and a
-configured Gemini API key the drafts come from the model but must pass the
-same strict validation, falling back to the deterministic pipeline with a
-recorded warning when they do not."""
+With --critique the generated deck passes through the bounded critique
+loop (blueprint §8.5) that audits and repairs layout failures; with
+--use-vision the loop also consults the Gemini visual critic on the
+rendered slides (needs GEMINI_API_KEY). Planning and writing are
+deterministic by default; with --use-llm and a configured Gemini API key
+the drafts come from the model but must pass the same strict validation,
+falling back to the deterministic pipeline with a recorded warning when
+they do not."""
 
 from __future__ import annotations
 
@@ -13,16 +17,19 @@ import argparse
 import logging
 import re
 import sys
+import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from core.critique import run_critique_loop
 from core.generation import DeckBrief, generate_deck
 from core.html_renderer import render_deck_html, render_report
 from core.pptx_export import export_deck_pptx
+from core.renderer import RenderError, select_renderer
 from core.style_guide import StyleGuide
 from core.templates import load_templates
-from core.vision import load_dotenv
+from core.vision import critic_from_environment, load_dotenv
 
 
 def _slug(text: str) -> str:
@@ -74,6 +81,19 @@ def main() -> int:
         help="Draft the outline and content with Gemini (needs GEMINI_API_KEY)",
     )
     ap.add_argument(
+        "--critique",
+        action="store_true",
+        help="Audit and repair layout failures with the bounded critique "
+        "loop; writes <name>_critique.json with before/after evidence",
+    )
+    ap.add_argument(
+        "--use-vision",
+        action="store_true",
+        help="Also consult the Gemini visual critic inside the critique loop "
+        "(needs --critique and GEMINI_API_KEY; slide images are sent to "
+        "Google)",
+    )
+    ap.add_argument(
         "--pptx",
         action="store_true",
         help="Also export an editable PowerPoint file (native text and shapes)",
@@ -81,6 +101,14 @@ def main() -> int:
     args = ap.parse_args()
 
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+
+    if args.use_vision and not args.critique:
+        print(
+            "ERROR: --use-vision needs --critique (the visual critic runs "
+            "inside the critique loop).",
+            file=sys.stderr,
+        )
+        return 1
 
     style_guide_path = Path(args.style_guide)
     templates_path = (
@@ -104,15 +132,29 @@ def main() -> int:
         print(f"ERROR: cannot load templates: {exc}", file=sys.stderr)
         return 1
 
+    if args.use_llm or args.use_vision:
+        load_dotenv()
+
     provider = None
     if args.use_llm:
-        load_dotenv()
         from core.llm import text_provider_from_environment
 
         provider = text_provider_from_environment()
         if provider is None:
             print(
                 "ERROR: --use-llm needs a Gemini API key. Create a free key at "
+                "https://aistudio.google.com/apikey and put GEMINI_API_KEY=your-key "
+                "in a .env file at the repository root.",
+                file=sys.stderr,
+            )
+            return 1
+
+    critic = None
+    if args.use_vision:
+        critic = critic_from_environment()
+        if critic is None:
+            print(
+                "ERROR: --use-vision needs a Gemini API key. Create a free key at "
                 "https://aistudio.google.com/apikey and put GEMINI_API_KEY=your-key "
                 "in a .env file at the repository root.",
                 file=sys.stderr,
@@ -134,11 +176,51 @@ def main() -> int:
         return 1
 
     deck = generate_deck(brief, templates, style_guide, text_provider=provider)
-    report = render_report(deck, style_guide, templates)
 
     out_dir = Path(args.output_dir) if args.output_dir else Path("output") / "generated"
     name = args.name or _slug(deck.plan.deck_title) or _slug(args.topic)
     out_dir.mkdir(parents=True, exist_ok=True)
+
+    critique_report = None
+    critique_renders = None
+    if args.critique:
+        images = None
+        if critic is not None:
+            try:
+                renderer = select_renderer()
+            except RenderError as exc:
+                print(f"ERROR: {exc}", file=sys.stderr)
+                return 1
+            critique_renders = out_dir / f"{name}_critique" / "before"
+            try:
+                with tempfile.TemporaryDirectory(prefix="deckdna_critic_") as tmp:
+                    source_pptx = export_deck_pptx(
+                        deck, style_guide, templates, Path(tmp) / f"{name}.pptx"
+                    )
+                    pages = renderer.render_pptx(source_pptx, critique_renders)
+            except (RenderError, OSError) as exc:
+                print(
+                    f"ERROR: cannot render the generated deck for the visual "
+                    f"critic: {exc}",
+                    file=sys.stderr,
+                )
+                return 1
+            if len(pages) != len(deck.slides):
+                print(
+                    f"ERROR: rendered {len(pages)} slide image(s) but the deck "
+                    f"has {len(deck.slides)} slides; refusing to guess the "
+                    "mapping.",
+                    file=sys.stderr,
+                )
+                return 1
+            images = {
+                slide.slide_id: page for slide, page in zip(deck.slides, pages)
+            }
+        deck, critique_report = run_critique_loop(
+            deck, style_guide, templates, vision_provider=critic, images=images
+        )
+
+    report = render_report(deck, style_guide, templates)
     html_path = out_dir / f"{name}.html"
     json_path = out_dir / f"{name}_content.json"
     html_path.write_text(render_deck_html(deck, style_guide, templates), encoding="utf-8")
@@ -170,6 +252,41 @@ def main() -> int:
     print(f"Content JSON written to {json_path}")
     if pptx_path is not None:
         print(f"Editable PPTX written to {pptx_path}")
+    if critique_report is not None:
+        print(
+            f"Critique: score {critique_report.score_before} -> "
+            f"{critique_report.score_after} ({critique_report.stop_reason}, "
+            f"threshold {critique_report.threshold})"
+        )
+        for iteration in critique_report.iterations:
+            print(
+                f"  iteration {iteration.iteration}: "
+                f"{len(iteration.applied)} fix(es) applied, "
+                f"{len(iteration.rejected)} rejected"
+            )
+            for applied in iteration.applied:
+                print(
+                    f"    [{applied.source}] {applied.slide_id}/"
+                    f"{applied.element_id} {applied.action}: {applied.detail}"
+                )
+            for rejected in iteration.rejected:
+                print(f"    rejected: {rejected}")
+        for note in critique_report.vision_notes:
+            print(f"  vision: {note}")
+        if critique_renders is not None:
+            print(f"Pre-critique renders (what the vision critic saw) in {critique_renders}")
+        if critique_report.unresolved:
+            print(
+                f"{len(critique_report.unresolved)} unresolved high/medium "
+                "finding(s) recorded in the report."
+            )
+        if critique_report.needs_manual_review:
+            print("Flagged for manual review (final score below the threshold).")
+        critique_path = out_dir / f"{name}_critique.json"
+        critique_path.write_text(
+            critique_report.model_dump_json(indent=2), encoding="utf-8"
+        )
+        print(f"Critique report written to {critique_path}")
     return 0
 
 

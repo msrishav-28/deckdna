@@ -20,6 +20,7 @@ from core.generation import (
     BulletBlock,
     QuoteBlock,
     SlideContent,
+    SlideFix,
     StatBlock,
     SubtitleBlock,
 )
@@ -65,6 +66,11 @@ STAT_LABEL_SCALE = 0.3
 STAT_CONTEXT_SCALE = 0.38
 QUOTE_ATTRIBUTION_SCALE = 0.5
 MIN_SUB_FONT_PT = 14.0
+
+# Defensive clamps for critique fixes: text never renders below 8pt and a
+# box never shrinks below 5% of the canvas in either dimension.
+FIX_MIN_FONT_PT = 8.0
+FIX_MIN_SLOT_FRACTION = 0.05
 
 # Line-height factors the HTML stylesheet applies per part kind; the PPTX
 # exporter reuses them so both outputs wrap text the same way.
@@ -254,6 +260,50 @@ def _caption_slot(
     return best
 
 
+def _apply_slide_fixes(
+    boxes: List[RenderBox], fixes: Sequence[SlideFix]
+) -> Tuple[List[RenderBox], List[str]]:
+    """Apply the slide's stored fixes to planned boxes, clamped to the
+    canvas. Returns the adjusted boxes and the ids of fixes that matched
+    no element (reported, never silently dropped)."""
+    by_element: Dict[str, List[SlideFix]] = {}
+    for fix in fixes:
+        by_element.setdefault(fix.element_id, []).append(fix)
+    adjusted: List[RenderBox] = []
+    for box in boxes:
+        pending = by_element.get(box.element_id)
+        if not pending:
+            adjusted.append(box)
+            continue
+        by_element.pop(box.element_id)
+        slot = box.slot
+        font_pt = box.font_pt
+        parts = box.parts
+        for fix in pending:
+            width = min(max(slot.width + fix.dw, FIX_MIN_SLOT_FRACTION), 1.0)
+            height = min(max(slot.height + fix.dh, FIX_MIN_SLOT_FRACTION), 1.0)
+            x = min(max(slot.x + fix.dx, 0.0), 1.0 - width)
+            y = min(max(slot.y + fix.dy, 0.0), 1.0 - height)
+            slot = slot.model_copy(
+                update={"x": x, "y": y, "width": width, "height": height}
+            )
+            if fix.font_scale != 1.0 and font_pt is not None:
+                font_pt = max(font_pt * fix.font_scale, FIX_MIN_FONT_PT)
+                slot = slot.model_copy(update={"font_size_pt": font_pt})
+                parts = tuple(
+                    part._replace(
+                        font_pt=max(
+                            part.font_pt * fix.font_scale, FIX_MIN_FONT_PT
+                        )
+                    )
+                    if part.font_pt is not None
+                    else part
+                    for part in parts
+                )
+        adjusted.append(box._replace(slot=slot, font_pt=font_pt, parts=parts))
+    return adjusted, list(by_element)
+
+
 def plan_slide(
     slide: SlideContent,
     template: Optional[TemplateRecord],
@@ -441,4 +491,10 @@ def plan_slide(
         else:
             element_id = f"{slide.slide_id}-{spec.base}"
         boxes.append(RenderBox(element_id=element_id, **spec._asdict()))
+    if slide.fixes:
+        boxes, unmatched = _apply_slide_fixes(boxes, slide.fixes)
+        warnings.extend(
+            f"{slide.slide_id}: fix targets unknown element '{element_id}'"
+            for element_id in unmatched
+        )
     return boxes, warnings

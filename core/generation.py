@@ -118,6 +118,22 @@ ContentBlock = Annotated[
 ]
 
 
+class SlideFix(BaseModel):
+    """One bounded correction to a planned element (critique loop).
+
+    Geometry deltas are canvas fractions; font_scale may only shrink text.
+    Fixes persist with the deck, so a fixed deck re-renders identically
+    in every format.
+    """
+
+    element_id: str
+    font_scale: float = Field(default=1.0, gt=0.0, le=1.0)
+    dx: float = Field(default=0.0, ge=-0.5, le=0.5)
+    dy: float = Field(default=0.0, ge=-0.5, le=0.5)
+    dw: float = Field(default=0.0, ge=-0.5, le=0.5)
+    dh: float = Field(default=0.0, ge=-0.5, le=0.5)
+
+
 class SlideContent(BaseModel):
     slide_id: str
     slide_number: int
@@ -125,6 +141,7 @@ class SlideContent(BaseModel):
     template_id: str
     title: Optional[str] = None
     content: List[ContentBlock] = Field(default_factory=list)
+    fixes: List[SlideFix] = Field(default_factory=list)
     warnings: List[str] = Field(default_factory=list)
 
 
