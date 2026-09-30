@@ -104,6 +104,15 @@ def get_deck(deck_id: str) -> Optional[dict]:
     return _row_dict(row)
 
 
+def list_decks(limit: int = 20) -> list:
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT * FROM decks ORDER BY created_at DESC, rowid DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
 def complete_deck(
     deck_id: str, slide_count: int, style_guide_id: str, template_count: int
 ) -> None:

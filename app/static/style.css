@@ -1,0 +1,266 @@
+/* DeckDNA web pages: light, quiet, readable. No external assets. */
+
+:root {
+  --bg: #f6f7f9;
+  --card: #ffffff;
+  --text: #1f2933;
+  --muted: #64748b;
+  --border: #e2e8f0;
+  --accent: #3b5bdb;
+  --accent-dark: #2f49af;
+  --ok-bg: #e6f4ea;
+  --ok-text: #1e7f43;
+  --run-bg: #e8efff;
+  --run-text: #2f49af;
+  --bad-bg: #fdecec;
+  --bad-text: #b3261e;
+  --warn-bg: #fff6e5;
+  --warn-text: #8a5a00;
+  --radius: 10px;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+.wrap {
+  max-width: 880px;
+  margin: 0 auto;
+  padding: 0 20px;
+}
+
+.topbar {
+  background: var(--card);
+  border-bottom: 1px solid var(--border);
+}
+
+.topbar-inner {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  padding: 14px 20px;
+}
+
+.brand {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.tagline { color: var(--muted); font-size: 13px; }
+
+main { padding-bottom: 40px; }
+
+.footer {
+  color: var(--muted);
+  font-size: 12px;
+  padding-bottom: 30px;
+}
+
+/* -- cards ---------------------------------------------------------------- */
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 22px 24px;
+  margin: 20px 0;
+}
+
+h1 { font-size: 24px; margin: 0 0 10px; }
+h2 { font-size: 18px; margin: 0 0 10px; }
+h3.sub { font-size: 15px; margin: 16px 0 8px; text-transform: uppercase;
+         letter-spacing: 0.04em; color: var(--muted); }
+
+.lede { color: var(--muted); margin-top: 0; }
+.muted { color: var(--muted); }
+.small { font-size: 13px; }
+.mono { font-family: "Cascadia Mono", Consolas, Menlo, monospace; }
+
+/* -- tables ---------------------------------------------------------------- */
+
+.table { width: 100%; border-collapse: collapse; margin: 8px 0 4px; }
+
+.table th, .table td {
+  text-align: left;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+
+.table th { font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+
+/* -- status chips ---------------------------------------------------------- */
+
+.chip {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  background: var(--border);
+  color: var(--text);
+  text-transform: capitalize;
+}
+
+.chip-queued { background: #eef1f5; color: #475569; }
+.chip-running { background: var(--run-bg); color: var(--run-text); }
+.chip-completed { background: var(--ok-bg); color: var(--ok-text); }
+.chip-failed { background: var(--bad-bg); color: var(--bad-text); }
+
+/* -- progress -------------------------------------------------------------- */
+
+.progress-row { display: flex; align-items: center; gap: 12px; margin: 14px 0 6px; }
+
+.progress-track {
+  flex: 1;
+  height: 10px;
+  border-radius: 999px;
+  background: #e9edf2;
+  overflow: hidden;
+}
+
+.progress-bar {
+  height: 100%;
+  width: 0;
+  background: var(--accent);
+  border-radius: 999px;
+  transition: width 0.4s ease;
+}
+
+.stage-label { font-weight: 600; }
+
+/* -- forms ----------------------------------------------------------------- */
+
+label { display: block; margin: 10px 0; font-size: 14px; }
+
+input[type="text"], input[type="number"], select, textarea {
+  display: block;
+  width: 100%;
+  margin-top: 4px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 14px;
+  font-family: inherit;
+  background: #fff;
+  color: inherit;
+}
+
+textarea { resize: vertical; }
+
+input:focus, select:focus, textarea:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+  border-color: var(--accent);
+}
+
+.hex-input { font-family: "Cascadia Mono", Consolas, Menlo, monospace; text-transform: uppercase; }
+
+.field-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 4px 20px;
+}
+
+.checkbox-label {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  margin: 14px 0;
+}
+
+.checkbox-label input { margin-top: 3px; }
+
+button, .button-link {
+  display: inline-block;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 9px 18px;
+  font-size: 14px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+button:hover, .button-link:hover { background: var(--accent-dark); }
+button:disabled { opacity: 0.55; cursor: default; }
+
+.button-link.secondary {
+  background: #fff;
+  color: var(--accent);
+  border: 1px solid var(--accent);
+}
+
+.button-link.secondary:hover { background: #eef2ff; }
+
+.row-form { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.row-form input[type="file"] { flex: 1; }
+
+.save-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin: 18px 0;
+}
+
+.download-row { display: flex; gap: 12px; flex-wrap: wrap; }
+
+/* -- swatches -------------------------------------------------------------- */
+
+.swatch {
+  display: inline-block;
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  border: 1px solid rgba(0, 0, 0, 0.15);
+  vertical-align: middle;
+}
+
+/* -- messages -------------------------------------------------------------- */
+
+.error-box {
+  background: var(--bad-bg);
+  color: var(--bad-text);
+  border-radius: 8px;
+  padding: 10px 14px;
+}
+
+.notice-box {
+  background: var(--warn-bg);
+  color: var(--warn-text);
+  border-radius: 8px;
+  padding: 10px 14px;
+  margin-top: 10px;
+}
+
+.notice-box ul, .warning-list { margin: 6px 0 0; padding-left: 20px; }
+.warning-list li { margin: 4px 0; }
+
+/* -- preview --------------------------------------------------------------- */
+
+#preview-frame {
+  width: 100%;
+  height: 460px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #1f2328;
+}
+
+pre {
+  background: #f1f3f6;
+  border-radius: 8px;
+  padding: 10px 12px;
+  overflow-x: auto;
+}

@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% block title %}DeckDNA — upload a deck to learn its style{% endblock %}
+{% block content %}
+<section class="card">
+  <h1>Start from a deck you already like</h1>
+  <p class="lede">
+    Upload a .pptx file. DeckDNA reads its design — colors, fonts, spacing,
+    layouts — and learns a style guide you can inspect and edit. It can then
+    generate new decks in that style, as editable PowerPoint.
+  </p>
+  <form id="upload-form" class="row-form">
+    <input type="file" id="deck-file" name="file" accept=".pptx" required>
+    <button type="submit" id="upload-button">Upload and learn</button>
+  </form>
+  <p id="upload-error" class="error-box" hidden></p>
+</section>
+
+<section class="card">
+  <h2>Recent decks</h2>
+  {% if decks %}
+  <table class="table">
+    <thead>
+      <tr><th>File</th><th>Uploaded (UTC)</th><th>Status</th><th></th></tr>
+    </thead>
+    <tbody>
+      {% for deck in decks %}
+      <tr>
+        <td>{{ deck.source_name }}</td>
+        <td class="muted">{{ deck.created_at }}</td>
+        <td><span class="chip chip-{{ deck.status }}">{{ deck.status }}</span></td>
+        <td>
+          {% if deck.status == 'completed' and deck.style_guide_id %}
+          <a href="/style-guides/{{ deck.style_guide_id }}">Inspect style guide</a>
+          {% else %}
+          <a href="/decks/{{ deck.deck_id }}">View progress</a>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted">No decks uploaded yet — add one above to get started.</p>
+  {% endif %}
+</section>
+
+<script>
+(function () {
+  const form = document.getElementById("upload-form");
+  const input = document.getElementById("deck-file");
+  const button = document.getElementById("upload-button");
+  const error = document.getElementById("upload-error");
+
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    error.hidden = true;
+    const file = input.files[0];
+    if (!file) {
+      return;
+    }
+    button.disabled = true;
+    button.textContent = "Uploading\u2026";
+    try {
+      const body = new FormData();
+      body.append("file", file);
+      const response = await fetch("/v1/decks", { method: "POST", body });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data.detail || "The upload did not go through.");
+      }
+      window.location.href = "/decks/" + data.deck_id;
+    } catch (err) {
+      error.textContent = err.message;
+      error.hidden = false;
+      button.disabled = false;
+      button.textContent = "Upload and learn";
+    }
+  });
+})();
+</script>
+{% endblock %}

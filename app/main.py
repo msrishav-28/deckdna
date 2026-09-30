@@ -10,8 +10,9 @@ from __future__ import annotations
 import logging
 
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 
-from app import db
+from app import db, web
 from app.api import decks, generation, style_guides
 from app.jobs import JobQueue
 
@@ -32,6 +33,10 @@ def create_app() -> FastAPI:
     app.include_router(decks.router)
     app.include_router(style_guides.router)
     app.include_router(generation.router)
+    app.include_router(web.router)
+    app.mount(
+        "/static", StaticFiles(directory=str(web.STATIC_DIR)), name="static"
+    )
     return app
 
 

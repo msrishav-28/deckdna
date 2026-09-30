@@ -543,6 +543,162 @@ def test_generation_download_unknown_and_unsafe_ids(client):
     assert _download(client, "gen_x", "zip").status_code == 404
 
 
+# -- browser pages (Milestone 7 UI) -----------------------------------------
+
+
+def test_home_page_lists_recent_decks(client, fixture_deck):
+    empty = client.get("/")
+    assert empty.status_code == 200
+    assert "No decks uploaded yet" in empty.text
+
+    deck_id = _prepare_style_guide(client, fixture_deck)
+    home = client.get("/")
+    assert home.status_code == 200, home.text
+    assert "sample_deck.pptx" in home.text
+    assert f"/style-guides/{deck_id}" in home.text
+    assert "completed" in home.text
+
+
+def test_deck_progress_page_shows_state_and_links(client, fixture_deck):
+    response = _upload_deck(client, fixture_deck)
+    assert response.status_code == 202, response.text
+    created = response.json()
+
+    page = client.get(f"/decks/{created['deck_id']}")
+    assert page.status_code == 200, page.text
+    assert "sample_deck.pptx" in page.text
+
+    job = _wait_for_job(client, created["job_id"])
+    assert job["status"] == "completed", job
+    done = client.get(f"/decks/{created['deck_id']}")
+    assert done.status_code == 200
+    assert f"/style-guides/{created['deck_id']}" in done.text
+    assert "reusable layouts" in done.text
+
+    missing = client.get("/decks/deck_missing")
+    assert missing.status_code == 404
+    # quotes are HTML-escaped in the rendered page
+    assert "No deck" in missing.text and "deck_missing" in missing.text
+    assert client.get("/decks/gen..name").status_code == 404
+
+
+def test_style_guide_page_shows_learned_values_and_edit_trail(
+    client, fixture_deck
+):
+    deck_id = _prepare_style_guide(client, fixture_deck)
+    page = client.get(f"/style-guides/{deck_id}")
+    assert page.status_code == 200, page.text
+
+    guide = client.get(f"/v1/style-guides/{deck_id}").json()["style_guide"]
+    first_palette = guide["palette"][0]
+    assert first_palette["hex"] in page.text
+    assert first_palette["usage"] in page.text
+    assert "No edits yet" in page.text
+
+    records = load_templates(
+        config.STYLE_GUIDES_DIR / f"{deck_id}_templates.json"
+    )
+    assert records[0].template_id in page.text
+    assert "Generate a new deck in this style" in page.text
+
+    patch = client.patch(
+        f"/v1/style-guides/{deck_id}",
+        json={"content_rules": {"max_bullets_per_slide": 4}},
+    )
+    assert patch.status_code == 200, patch.text
+    edited = client.get(f"/style-guides/{deck_id}")
+    assert "Change 1" in edited.text
+    assert "max_bullets_per_slide" in edited.text
+
+    assert client.get("/style-guides/deck_missing").status_code == 404
+    assert client.get("/style-guides/gen..name").status_code == 404
+
+
+def test_outline_page_lists_slides_and_approval_form(client, fixture_deck):
+    deck_id = _prepare_style_guide(client, fixture_deck)
+    outline = _plan_outline(client, deck_id)
+
+    page = client.get(f"/outlines/{outline['outline_id']}")
+    assert page.status_code == 200, page.text
+    assert outline["deck_title"] in page.text
+    assert outline["outline_id"] in page.text
+    assert f"/style-guides/{deck_id}" in page.text
+    assert "Approve and generate" in page.text
+    for slide in outline["slides"]:
+        assert slide["template_id"] in page.text
+        assert slide["intent"] in page.text
+
+    assert client.get("/outlines/outline_missing").status_code == 404
+    assert client.get("/outlines/evil..name").status_code == 404
+
+
+def test_generation_page_renders_result_and_inline_preview(
+    client, fixture_deck
+):
+    deck_id = _prepare_style_guide(client, fixture_deck)
+    outline = _plan_outline(client, deck_id)
+    created = _generate(client, deck_id, outline["outline_id"]).json()
+
+    # whatever state the job is in, the page must render
+    early = client.get(
+        f"/generations/{created['generation_id']}",
+        params={"job": created["job_id"]},
+    )
+    assert early.status_code == 200, early.text
+
+    job = _wait_for_job(client, created["job_id"])
+    assert job["status"] == "completed", job
+    page = client.get(
+        f"/generations/{created['generation_id']}",
+        params={"job": created["job_id"]},
+    )
+    assert page.status_code == 200, page.text
+    assert job["result"]["deck_title"] in page.text
+    assert (
+        f"/v1/generations/{created['generation_id']}/download/pptx" in page.text
+    )
+    assert "download/html?inline=1" in page.text
+    assert "Quality check" in page.text
+
+    # downloads keep the attachment disposition; the iframe needs inline
+    attachment = _download(client, created["generation_id"], "html")
+    assert "attachment" in attachment.headers["content-disposition"]
+    inline = client.get(
+        f"/v1/generations/{created['generation_id']}/download/html?inline=1"
+    )
+    assert "inline" in inline.headers["content-disposition"]
+    assert inline.text == attachment.text
+
+    # a page without a job id still gives a usable notice
+    notice = client.get(f"/generations/{created['generation_id']}")
+    assert notice.status_code == 200
+
+    unknown_job = client.get(
+        f"/generations/{created['generation_id']}",
+        params={"job": "job_missing"},
+    )
+    assert unknown_job.status_code == 404
+    assert client.get("/generations/gen..name").status_code == 404
+
+
+def test_generation_page_shows_failed_job_error(client, fixture_deck):
+    deck_id = _prepare_style_guide(client, fixture_deck)
+    outline = _plan_outline(client, deck_id)
+    created = _generate(client, deck_id, outline["outline_id"]).json()
+    job = _wait_for_job(client, created["job_id"])
+    assert job["status"] == "completed", job
+
+    # simulate a failure of an earlier run of the same-ish shape: swap the
+    # stored job for a failed one and confirm the page reports it honestly
+    db.update_job(created["job_id"], status="failed", error="disk full")
+    page = client.get(
+        f"/generations/{created['generation_id']}",
+        params={"job": created["job_id"]},
+    )
+    assert page.status_code == 200
+    assert "disk full" in page.text
+
+
 def test_generation_job_reports_critique_iteration_stages(client, fixture_deck):
     deck_id = _prepare_style_guide(client, fixture_deck)
     outline = _plan_outline(client, deck_id)

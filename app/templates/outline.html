@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+{% block title %}Outline: {{ plan.deck_title }} — DeckDNA{% endblock %}
+{% block content %}
+<section class="card">
+  <h1>{{ plan.deck_title }}</h1>
+  <p class="lede">
+    This is the planned storyline — {{ plan.slides | length }} slide(s) built
+    from the templates in the style guide
+    <a href="/style-guides/{{ outline.style_guide_id }}">{{ outline.style_guide_id }}</a>.
+    Nothing is generated until you approve it below.
+  </p>
+  {% if plan.audience or plan.tone or brief.goal %}
+  <p class="muted">
+    {% if plan.audience %}Audience: {{ plan.audience }}.{% endif %}
+    {% if plan.tone %}Tone: {{ plan.tone }}.{% endif %}
+    {% if brief.goal %}Goal: {{ brief.goal }}.{% endif %}
+  </p>
+  {% endif %}
+  {% if brief.notes %}
+  <p class="muted small">{{ brief.notes | length }} note line(s) supplied as content material.</p>
+  {% endif %}
+</section>
+
+<section class="card">
+  <h2>Slides</h2>
+  <table class="table">
+    <thead>
+      <tr><th>#</th><th>Type</th><th>Template</th><th>Title</th><th>Purpose</th></tr>
+    </thead>
+    <tbody>
+      {% for slide in plan.slides %}
+      <tr>
+        <td>{{ slide.slide_number }}</td>
+        <td>{{ slide.slide_type }}</td>
+        <td class="mono small">{{ slide.template_id }}</td>
+        <td>{{ slide.title or slide.subtitle or '—' }}</td>
+        <td class="muted">{{ slide.intent }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% if plan.warnings %}
+  <div class="notice-box">
+    <strong>Planning notes</strong>
+    <ul>
+      {% for warning in plan.warnings %}<li>{{ warning }}</li>{% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+</section>
+
+<section class="card">
+  <h2>Approve and generate</h2>
+  <p class="muted">Generation fills this outline exactly as approved and
+    produces an editable PowerPoint file, an HTML preview, and the content
+    as JSON.</p>
+  <label class="checkbox-label">
+    <input type="checkbox" id="enable-critique" checked>
+    Run the automatic quality check after generating (recommended — it
+    reviews the layout and repairs small overflow problems)
+  </label>
+  <p>
+    <button type="button" id="approve-button">Approve and generate</button>
+    <span id="approve-message" class="muted"></span>
+  </p>
+</section>
+
+<script>
+(function () {
+  const outlineId = {{ outline.outline_id | tojson }};
+  const styleGuideId = {{ outline.style_guide_id | tojson }};
+  const button = document.getElementById("approve-button");
+  const message = document.getElementById("approve-message");
+  const critique = document.getElementById("enable-critique");
+
+  button.addEventListener("click", async function () {
+    button.disabled = true;
+    message.textContent = "Starting the generation\u2026";
+    try {
+      const response = await fetch("/v1/generations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          style_guide_id: styleGuideId,
+          approved_outline_id: outlineId,
+          output_format: "pptx",
+          enable_critique: critique.checked,
+        }),
+      });
+      const data = await response.json().catch(function () { return {}; });
+      if (!response.ok) {
+        throw new Error(
+          typeof data.detail === "string"
+            ? data.detail
+            : "The generation could not be started."
+        );
+      }
+      window.location.href = "/generations/" + data.generation_id +
+        "?job=" + encodeURIComponent(data.job_id);
+    } catch (err) {
+      message.textContent = err.message;
+      button.disabled = false;
+    }
+  });
+})();
+</script>
+{% endblock %}

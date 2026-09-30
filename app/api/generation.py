@@ -242,7 +242,9 @@ def create_generation(generation: GenerationRequest, request: Request) -> dict:
 
 
 @router.get("/v1/generations/{generation_id}/download/{artifact}")
-def download_generation(generation_id: str, artifact: str) -> FileResponse:
+def download_generation(
+    generation_id: str, artifact: str, inline: bool = False
+) -> FileResponse:
     if not config.is_safe_id(generation_id) or artifact not in ARTIFACT_FILES:
         raise HTTPException(
             status_code=404,
@@ -258,4 +260,7 @@ def download_generation(generation_id: str, artifact: str) -> FileResponse:
         path,
         media_type=_DOWNLOAD_MEDIA_TYPES[artifact],
         filename=_DOWNLOAD_NAMES[artifact].format(gen=generation_id),
+        # the preview page embeds the html artifact in an iframe, which
+        # needs an inline disposition; downloads keep the attachment one
+        content_disposition_type="inline" if inline else "attachment",
     )

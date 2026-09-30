@@ -1,0 +1,114 @@
+{% extends "base.html" %}
+{% block title %}Learning the style of {{ deck.source_name }} — DeckDNA{% endblock %}
+{% block content %}
+<section class="card" id="deck-card" data-deck-id="{{ deck.deck_id }}"
+         data-status="{{ deck.status }}">
+  <h1>Learning the style of {{ deck.source_name }}</h1>
+  <p class="lede">
+    DeckDNA is reading the uploaded deck and writing down what it learns —
+    colors, fonts, spacing and slide layouts — as a style guide.
+  </p>
+
+  <p>
+    Status: <span id="status-chip" class="chip chip-{{ deck.status }}">{{ deck.status }}</span>
+  </p>
+
+  <div class="progress-row">
+    <div class="progress-track">
+      <div id="progress-bar" class="progress-bar"
+           style="width: {{ job.progress if job else 0 }}%"></div>
+    </div>
+    <span id="progress-number" class="muted">{{ job.progress if job else 0 }}%</span>
+  </div>
+
+  <p id="stage-line">
+    <span id="stage-label" class="stage-label">{{ stage_labels.get(job.stage, job.stage) if job else 'Waiting to start' }}</span>
+    {% if job %}<span class="muted mono" id="stage-raw">({{ job.stage }})</span>{% endif %}
+  </p>
+
+  <p id="failed-box" class="error-box" {% if deck.status != 'failed' %}hidden{% endif %}>
+    {{ deck.error or '' }}
+  </p>
+
+  <div id="done-box" {% if deck.status != 'completed' %}hidden{% endif %}>
+    <p>
+      Learned <strong id="slide-count">{{ deck.slide_count }}</strong> slides and
+      <strong id="template-count">{{ deck.template_count }}</strong> reusable layouts.
+    </p>
+    <p>
+      <a class="button-link" id="style-link"
+         href="/style-guides/{{ deck.style_guide_id or '' }}">Inspect the style guide</a>
+    </p>
+  </div>
+</section>
+
+<script>
+(function () {
+  const card = document.getElementById("deck-card");
+  const deckId = card.dataset.deckId;
+  const stageLabels = {{ stage_labels | tojson }};
+  const chip = document.getElementById("status-chip");
+  const bar = document.getElementById("progress-bar");
+  const number = document.getElementById("progress-number");
+  const stageLabel = document.getElementById("stage-label");
+  const stageRaw = document.getElementById("stage-raw");
+  const failedBox = document.getElementById("failed-box");
+  const doneBox = document.getElementById("done-box");
+  const slideCount = document.getElementById("slide-count");
+  const templateCount = document.getElementById("template-count");
+  const styleLink = document.getElementById("style-link");
+
+  function render(data) {
+    chip.textContent = data.status;
+    chip.className = "chip chip-" + data.status;
+    const job = data.job || {};
+    const progress = job.progress || 0;
+    bar.style.width = progress + "%";
+    number.textContent = progress + "%";
+    if (job.stage) {
+      stageLabel.textContent = stageLabels[job.stage] || job.stage;
+      if (stageRaw) {
+        stageRaw.textContent = "(" + job.stage + ")";
+      }
+    }
+    if (data.status === "completed") {
+      slideCount.textContent = data.slide_count;
+      templateCount.textContent = data.template_count;
+      styleLink.href = "/style-guides/" + data.style_guide_id;
+      doneBox.hidden = false;
+      failedBox.hidden = true;
+      return true;
+    }
+    if (data.status === "failed") {
+      failedBox.textContent = data.error || "The extraction failed.";
+      failedBox.hidden = false;
+      doneBox.hidden = true;
+      return true;
+    }
+    return false;
+  }
+
+  async function tick() {
+    let data;
+    try {
+      const response = await fetch("/v1/decks/" + deckId);
+      if (!response.ok) {
+        return;
+      }
+      data = await response.json();
+    } catch (err) {
+      window.setTimeout(tick, 3000);
+      return;
+    }
+    if (!render(data)) {
+      window.setTimeout(tick, 900);
+    }
+  }
+
+  const status = card.dataset.status;
+  if (status !== "completed" && status !== "failed") {
+    tick();
+  }
+})();
+</script>
+{% endblock %}

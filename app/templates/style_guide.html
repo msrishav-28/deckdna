@@ -1,0 +1,404 @@
+{% extends "base.html" %}
+{% block title %}Style guide — DeckDNA{% endblock %}
+{% block content %}
+<section class="card">
+  <h1>Style guide learned from {{ source_name or style_guide_id }}</h1>
+  <p class="lede">
+    These are the design values DeckDNA read from the uploaded deck
+    ({{ guide.source_slide_count }} slides, {{ templates | length }} reusable layouts).
+    Edit any value and save — edits apply to the next generated deck.
+  </p>
+</section>
+
+<section class="card">
+  <h2>Colors</h2>
+  <p class="muted">
+    One row per usage. Saving a color moves every palette entry of that
+    usage together, so the renderer can never pick an older value.
+  </p>
+  <table class="table">
+    <thead>
+      <tr><th>Usage</th><th>Color</th><th>Value</th><th class="muted">Entries</th></tr>
+    </thead>
+    <tbody>
+      {% for group in palette_groups %}
+      <tr>
+        <td>{{ group.usage }}</td>
+        <td><span class="swatch" id="swatch-palette-{{ loop.index }}"
+                  style="background: {{ group.hex }}"></span></td>
+        <td>
+          <input class="hex-input" type="text" maxlength="7" spellcheck="false"
+                 data-palette-usage="{{ group.usage }}"
+                 data-swatch="swatch-palette-{{ loop.index }}"
+                 value="{{ group.hex }}" data-initial="{{ group.hex }}">
+        </td>
+        <td class="muted">{{ group.count }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section class="card">
+  <h2>Typography</h2>
+  {% for kind in ['title', 'body'] %}
+  {% set spec = guide.typography.get(kind) or {} %}
+  <h3 class="sub">{{ kind | capitalize }}</h3>
+  <div class="field-grid">
+    <label>Font family
+      <input type="text" maxlength="80" spellcheck="false"
+             data-typography="{{ kind }}" data-field="font_family"
+             value="{{ spec.get('font_family') or '' }}"
+             data-initial="{{ spec.get('font_family') or '' }}">
+    </label>
+    <label>Size (pt)
+      <input type="number" step="0.5" min="0.1" max="200"
+             data-typography="{{ kind }}" data-field="font_size_pt"
+             value="{{ spec.get('font_size_pt') if spec.get('font_size_pt') is not none else '' }}"
+             data-initial="{{ spec.get('font_size_pt') if spec.get('font_size_pt') is not none else '' }}">
+    </label>
+    <label>Weight
+      {% set weight = spec.get('font_weight') or '' %}
+      <select data-typography="{{ kind }}" data-field="font_weight"
+              data-initial="{{ weight }}">
+        <option value="">(keep as learned)</option>
+        <option value="bold" {% if weight == 'bold' %}selected{% endif %}>bold</option>
+        <option value="normal" {% if weight == 'normal' %}selected{% endif %}>normal</option>
+      </select>
+    </label>
+    <label>Color
+      <input class="hex-input" type="text" maxlength="7" spellcheck="false"
+             data-typography="{{ kind }}" data-field="color_hex"
+             value="{{ spec.get('color_hex') or '' }}"
+             data-initial="{{ spec.get('color_hex') or '' }}">
+    </label>
+  </div>
+  {% if spec.get('sample_count') %}
+  <p class="muted small">Learned from {{ spec.get('sample_count') }} element(s).
+    {% if spec.get('provenance') %}Source: {{ spec.get('provenance') }}.{% endif %}</p>
+  {% endif %}
+  {% endfor %}
+</section>
+
+<section class="card">
+  <h2>Spacing</h2>
+  {% set margins = guide.layout_grid.margins_px %}
+  <div class="field-grid">
+    {% for side in ['top', 'right', 'bottom', 'left'] %}
+    {% set field = side + '_px' %}
+    <label>{{ side | capitalize }} margin (px)
+      <input type="number" step="1" min="0" max="1000"
+             data-margins="{{ field }}"
+             value="{{ margins.get(field) if margins.get(field) is not none else '' }}"
+             data-initial="{{ margins.get(field) if margins.get(field) is not none else '' }}">
+    </label>
+    {% endfor %}
+  </div>
+  <p class="muted small">Slide size: {{ guide.layout_grid.slide_width_px | round | int }} ×
+    {{ guide.layout_grid.slide_height_px | round | int }} px ({{ guide.aspect_ratio }}).</p>
+</section>
+
+<section class="card">
+  <h2>Content rules</h2>
+  {% set rules = guide.content_rules %}
+  <div class="field-grid">
+    <label>Max bullets per slide
+      <input type="number" step="1" min="1" max="12"
+             data-rules="max_bullets_per_slide"
+             value="{{ rules.get('max_bullets_per_slide') if rules.get('max_bullets_per_slide') is not none else '' }}"
+             data-initial="{{ rules.get('max_bullets_per_slide') if rules.get('max_bullets_per_slide') is not none else '' }}">
+    </label>
+    <label>Max words per bullet
+      <input type="number" step="1" min="1" max="40"
+             data-rules="max_words_per_bullet"
+             value="{{ rules.get('max_words_per_bullet') if rules.get('max_words_per_bullet') is not none else '' }}"
+             data-initial="{{ rules.get('max_words_per_bullet') if rules.get('max_words_per_bullet') is not none else '' }}">
+    </label>
+    <label>Max title length (characters)
+      <input type="number" step="1" min="1" max="200"
+             data-rules="max_title_length"
+             value="{{ rules.get('max_title_length') if rules.get('max_title_length') is not none else '' }}"
+             data-initial="{{ rules.get('max_title_length') if rules.get('max_title_length') is not none else '' }}">
+    </label>
+    <label>Preferred density
+      {% set density = rules.get('preferred_density') or '' %}
+      <select data-rules="preferred_density" data-initial="{{ density }}">
+        <option value="">(keep as learned)</option>
+        <option value="low" {% if density == 'low' %}selected{% endif %}>low</option>
+        <option value="medium" {% if density == 'medium' %}selected{% endif %}>medium</option>
+        <option value="high" {% if density == 'high' %}selected{% endif %}>high</option>
+      </select>
+    </label>
+  </div>
+  <label class="checkbox-label">
+    <input type="checkbox" data-rules="avoid_repeating_layouts"
+           {% if rules.get('avoid_repeating_layouts', True) %}checked{% endif %}>
+    Avoid repeating layouts back-to-back when planning
+  </label>
+</section>
+
+<div class="save-row">
+  <button type="button" id="save-button">Save style guide changes</button>
+  <span id="save-message" class="muted"></span>
+</div>
+
+<section class="card">
+  <h2>Layout templates</h2>
+  <p class="muted">The reusable layouts found in the uploaded deck; generation
+    fills these instead of inventing new ones.</p>
+  <table class="table">
+    <thead>
+      <tr><th>Template</th><th>Slide type</th><th>Source slide</th><th>Slots</th><th>Warnings</th></tr>
+    </thead>
+    <tbody>
+      {% for record in templates %}
+      <tr>
+        <td class="mono small">{{ record.template_id }}</td>
+        <td>{{ record.slide_type }}</td>
+        <td>{{ record.source_slide_number }}</td>
+        <td>{{ record.slots | length }}</td>
+        <td class="small">{% if record.warnings %}{{ record.warnings | join('; ') }}{% else %}<span class="muted">—</span>{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section class="card">
+  <h2>Edit history</h2>
+  {% if overrides %}
+  {% for ov in overrides %}
+  <p class="muted small">Change {{ ov.id }} — {{ ov.created_at }}</p>
+  <pre class="mono small">{{ ov.patch | tojson(indent=2) }}</pre>
+  {% endfor %}
+  {% else %}
+  <p class="muted">No edits yet — the values above are exactly as learned.</p>
+  {% endif %}
+</section>
+
+<section class="card">
+  <h2>Generate a new deck in this style</h2>
+  <p class="muted">Describe the deck you want. DeckDNA plans an outline from
+    this style guide's layouts; you approve it before anything is generated.</p>
+  <form id="outline-form">
+    <label>Topic (required)
+      <input type="text" id="outline-topic" maxlength="200" required
+             placeholder="e.g. Q3 growth review for the leadership team">
+    </label>
+    <div class="field-grid">
+      <label>Audience
+        <input type="text" id="outline-audience" maxlength="200" placeholder="e.g. the leadership team">
+      </label>
+      <label>Goal
+        <input type="text" id="outline-goal" maxlength="200" placeholder="e.g. approve the Q4 plan">
+      </label>
+      <label>Tone
+        <input type="text" id="outline-tone" maxlength="80" placeholder="e.g. confident, direct">
+      </label>
+      <label>Slides
+        <input type="number" id="outline-slide-count" min="1" max="50" value="5">
+      </label>
+    </div>
+    <label>Notes — one point per line; these become the slide content
+      <textarea id="outline-notes" rows="6"
+                placeholder="One short point per line.&#10;Numbers and short headings work best."></textarea>
+    </label>
+    <button type="submit" id="outline-button">Create the outline</button>
+    <span id="outline-message" class="muted"></span>
+  </form>
+</section>
+
+<script>
+(function () {
+  const styleGuideId = {{ style_guide_id | tojson }};
+
+  function detailText(data, fallback) {
+    if (!data || !data.detail) {
+      return fallback;
+    }
+    if (typeof data.detail === "string") {
+      return data.detail;
+    }
+    if (Array.isArray(data.detail)) {
+      return data.detail.map(function (item) {
+        const where = Array.isArray(item.loc) ? item.loc.join(".") + ": " : "";
+        return where + (item.msg || "invalid value");
+      }).join("; ");
+    }
+    return fallback;
+  }
+
+  // -- live swatches for hex fields ---------------------------------------
+  document.querySelectorAll(".hex-input").forEach(function (input) {
+    input.addEventListener("input", function () {
+      const swatch = input.dataset.swatch
+        ? document.getElementById(input.dataset.swatch)
+        : null;
+      const value = input.value.trim();
+      if (swatch && /^#[0-9A-Fa-f]{6}$/.test(value)) {
+        swatch.style.background = value;
+      }
+    });
+  });
+
+  // -- style guide save ----------------------------------------------------
+  const saveButton = document.getElementById("save-button");
+  const saveMessage = document.getElementById("save-message");
+
+  function collectPatch() {
+    const patch = {};
+
+    const palette = [];
+    document.querySelectorAll("[data-palette-usage]").forEach(function (input) {
+      const value = input.value.trim();
+      if (value.toUpperCase() !== input.dataset.initial.toUpperCase()) {
+        palette.push({ hex: value, usage: input.dataset.paletteUsage });
+      }
+    });
+    if (palette.length) {
+      patch.palette = palette;
+    }
+
+    const typography = {};
+    ["title", "body"].forEach(function (kind) {
+      const section = {};
+      document.querySelectorAll('[data-typography="' + kind + '"]').forEach(function (input) {
+        const value = input.value.trim();
+        if (value === input.dataset.initial.trim()) {
+          return;
+        }
+        if (input.dataset.field === "font_size_pt") {
+          if (value !== "") {
+            section.font_size_pt = Number(value);
+          }
+        } else if (input.dataset.field === "font_weight") {
+          if (value !== "") {
+            section.font_weight = value;
+          }
+        } else if (value !== "") {
+          section[input.dataset.field] = value;
+        }
+      });
+      if (Object.keys(section).length) {
+        typography[kind] = section;
+      }
+    });
+    if (Object.keys(typography).length) {
+      patch.typography = typography;
+    }
+
+    const margins = {};
+    document.querySelectorAll("[data-margins]").forEach(function (input) {
+      const value = input.value.trim();
+      if (value !== "" && value !== input.dataset.initial) {
+        margins[input.dataset.margins] = Number(value);
+      }
+    });
+    if (Object.keys(margins).length) {
+      patch.layout_grid = { margins_px: margins };
+    }
+
+    const rules = {};
+    document.querySelectorAll("[data-rules]").forEach(function (input) {
+      if (input.type === "checkbox") {
+        const initial = input.dataset.initial === "true";
+        if (input.checked !== initial) {
+          rules[input.dataset.rules] = input.checked;
+        }
+        return;
+      }
+      const value = input.value.trim();
+      if (value === "" || value === input.dataset.initial) {
+        return;
+      }
+      if (input.tagName === "SELECT") {
+        rules[input.dataset.rules] = value;
+      } else {
+        rules[input.dataset.rules] = Number(value);
+      }
+    });
+    if (Object.keys(rules).length) {
+      patch.content_rules = rules;
+    }
+
+    return patch;
+  }
+
+  // remember each checkbox's rendered state so "changed" is a real diff
+  document.querySelectorAll('input[type="checkbox"][data-rules]').forEach(function (box) {
+    box.dataset.initial = box.checked ? "true" : "false";
+  });
+
+  saveButton.addEventListener("click", async function () {
+    const patch = collectPatch();
+    if (Object.keys(patch).length === 0) {
+      saveMessage.textContent = "No changes to save.";
+      return;
+    }
+    saveButton.disabled = true;
+    saveMessage.textContent = "Saving\u2026";
+    try {
+      const response = await fetch("/v1/style-guides/" + styleGuideId, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(patch),
+      });
+      const data = await response.json().catch(function () { return {}; });
+      if (!response.ok) {
+        throw new Error(detailText(data, "The changes were not saved."));
+      }
+      window.location.reload();
+    } catch (err) {
+      saveMessage.textContent = err.message;
+      saveButton.disabled = false;
+    }
+  });
+
+  // -- outline creation ----------------------------------------------------
+  const outlineForm = document.getElementById("outline-form");
+  const outlineButton = document.getElementById("outline-button");
+  const outlineMessage = document.getElementById("outline-message");
+
+  outlineForm.addEventListener("submit", async function (event) {
+    event.preventDefault();
+    const topic = document.getElementById("outline-topic").value.trim();
+    if (!topic) {
+      outlineMessage.textContent = "Please enter a topic.";
+      return;
+    }
+    const body = {
+      topic: topic,
+      style_guide_id: styleGuideId,
+      slide_count: Number(document.getElementById("outline-slide-count").value) || 5,
+      notes: document.getElementById("outline-notes").value
+        .split("\n").map(function (line) { return line.trim(); })
+        .filter(function (line) { return line.length > 0; }),
+    };
+    const audience = document.getElementById("outline-audience").value.trim();
+    const goal = document.getElementById("outline-goal").value.trim();
+    const tone = document.getElementById("outline-tone").value.trim();
+    if (audience) { body.audience = audience; }
+    if (goal) { body.goal = goal; }
+    if (tone) { body.tone = tone; }
+
+    outlineButton.disabled = true;
+    outlineMessage.textContent = "Planning the outline\u2026";
+    try {
+      const response = await fetch("/v1/generations/outline", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = await response.json().catch(function () { return {}; });
+      if (!response.ok) {
+        throw new Error(detailText(data, "The outline could not be created."));
+      }
+      window.location.href = "/outlines/" + data.outline_id;
+    } catch (err) {
+      outlineMessage.textContent = err.message;
+      outlineButton.disabled = false;
+    }
+  });
+})();
+</script>
+{% endblock %}
