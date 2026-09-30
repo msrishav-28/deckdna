@@ -6,4 +6,10 @@ pydantic==2.10.6
 lxml==5.3.0
 pymupdf==1.28.2
 comtypes==1.4.17; sys_platform == "win32"
+fastapi==0.142.1
+uvicorn==0.54.0
+python-multipart==0.0.32
+jinja2==3.1.6
 pytest==8.3.4
+# Test client for the FastAPI app (starlette 1.x expects httpx2)
+httpx2==2.13.1
