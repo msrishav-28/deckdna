@@ -5,15 +5,18 @@
 [![Pydantic](https://img.shields.io/badge/schemas-Pydantic%202.10-E92063?logo=pydantic&logoColor=white)](https://docs.pydantic.dev/)
 [![PyMuPDF](https://img.shields.io/badge/rendering-PyMuPDF%201.28-5A6ABF)](https://pymupdf.readthedocs.io/)
 [![Gemini API](https://img.shields.io/badge/vision-Gemini%20API-8E75B2?logo=googlegemini&logoColor=white)](https://ai.google.dev/)
+[![FastAPI](https://img.shields.io/badge/web-FastAPI%200.142-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
+[![Jinja2](https://img.shields.io/badge/pages-Jinja2%203.1-B41717)](https://jinja.palletsprojects.com/)
 [![pytest](https://img.shields.io/badge/tests-pytest%208.3-0A9EDC?logo=pytest&logoColor=white)](https://docs.pytest.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 A self-hosted AI presentation generator that learns your design style from your existing decks and generates new slides in that exact style as fully editable `.pptx` files.
 
-**Status: early build (pre-MVP).** The full specification and roadmap live in [DECKDNA_AGENT_BLUEPRINT.md](DECKDNA_AGENT_BLUEPRINT.md). This repository is being built milestone by milestone; the sections below describe what works today.
+**Status: MVP feature-complete.** All seven milestones of [DECKDNA_AGENT_BLUEPRINT.md](DECKDNA_AGENT_BLUEPRINT.md) are implemented: the full flow — upload a deck, watch it learn the style, inspect and edit the style guide, describe a new deck, approve an outline, generate, preview and download — works end to end from a local web page, and every step of the underlying pipeline is also available as a command-line tool. The sections below describe what works today.
 
 ## What works today
 
+- **`python -m app.main`** — the local web app (blueprint Milestone 7): upload a `.pptx`, watch live extraction progress, inspect and edit the learned style guide with a change history, describe the deck you want and approve the proposed outline, then generate and download the result (editable PowerPoint, HTML preview, content JSON, quality report). A background queue and a local SQLite store keep progress and results across page reloads; the JSON API is versioned under `/v1`. Everything runs and stays on your machine, and runtime state is never committed.
 - **`scripts/parse_deck.py`** — reads a `.pptx` deck and writes `output/raw_deck.json`: a structured inventory of every slide's shapes, text runs, fonts, colors, and theme (raw material for style learning). Anything the parser cannot fully extract (chart internals, table cells) is recorded explicitly as a note or warning rather than dropped.
 - **`scripts/render_deck.py`** — turns every slide of a `.pptx` deck into a 1920px-wide PNG image, using desktop PowerPoint (Windows) or LibreOffice (any platform) when installed. Fails with a clear message when neither is available; never fakes a render.
 - **`scripts/extract_style.py`** — learns a deck's design DNA end to end: parses the deck, classifies every slide by type (title, bullets, chart, quote, comparison, and more), and writes a style guide (`style_guides/<deck>.json`) with the palette, typography, margins, and content rules, plus a reusable template library (`style_guides/<deck>_templates.json`) recording each slide's layout as canvas-fraction geometry. Every fact carries a `provenance` marker saying whether it came from the file itself or was inferred, and anything not derivable stays empty with a warning instead of a guess. Optionally enriches the guide with Gemini vision descriptions of rendered slides (`--use-vision --slides-dir ...` with a `GEMINI_API_KEY` in `.env`).
@@ -23,7 +26,7 @@ A self-hosted AI presentation generator that learns your design style from your 
 
 ## What is planned next
 
-A web UI. See the blueprint for the complete architecture and milestone order.
+All MVP milestones (0 through 7) are implemented. What remains is validation on real decks — the definition-of-success demo in the blueprint: run the full flow on real client decks, confirm the generated decks are coherent and the exported `.pptx` is editable, and use what that surfaces to drive hardening and packaging. See the blueprint for the complete architecture and milestone order.
 
 ## Setup
 
@@ -48,6 +51,9 @@ python scripts/generate_deck.py --topic "Quarterly Review" \
   --audience "the leadership team" --notes "Revenue grew 40 percent this quarter" \
   --notes "Support load fell after we shipped self-serve docs" --slides 5 --pptx
 
+# Run the local web app, then open http://127.0.0.1:8000 in your browser
+python -m app.main
+
 # Run the tests
 pytest
 ```
@@ -59,6 +65,7 @@ Optional vision enrichment of the style guide needs a free Gemini API key; copy 
 ## Project layout
 
 ```text
+app/                  Web app: FastAPI JSON API under /v1, local job queue, SQLite store, browser pages and templates
 core/                 Domain logic (schemas, PPTX parser, style extractor, slide classifier, templates, vision adapter, outline/content generation, shared layout planner, bounded critique loop, HTML preview renderer, editable PPTX exporter)
 scripts/              Command-line entry points
 tests/                Pytest suite and synthetic fixtures
