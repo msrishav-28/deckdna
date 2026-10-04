@@ -1,4 +1,5 @@
-"""Parse a .pptx deck into a structural inventory (raw_deck.json)."""
+"""Parse a deck source (.pptx, .pdf, .png, or a folder of .png slide images)
+into a structural inventory (raw_deck.json)."""
 
 from __future__ import annotations
 
@@ -9,14 +10,19 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from core.pptx_parser import DeckParseError, DeckParser
+from core.pptx_parser import DeckParseError
+from core.source_parser import parse_source
 
 
 def main() -> int:
     ap = argparse.ArgumentParser(
-        description="Parse a .pptx file into a machine-readable structural inventory."
+        description="Parse a .pptx, .pdf, or .png source into a machine-readable structural inventory."
     )
-    ap.add_argument("--input", required=True, help="Path to a .pptx file")
+    ap.add_argument(
+        "--input",
+        required=True,
+        help="Path to a .pptx, .pdf, or .png file, or a folder of .png slide images",
+    )
     ap.add_argument(
         "--output",
         default="output/raw_deck.json",
@@ -27,7 +33,7 @@ def main() -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 
     try:
-        inventory = DeckParser().parse(Path(args.input))
+        inventory = parse_source(Path(args.input))
     except DeckParseError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1

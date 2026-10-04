@@ -101,6 +101,87 @@ def test_upload_rejects_non_pptx(client):
     assert "pptx" in response.json()["detail"]
 
 
+def test_upload_rejects_legacy_ppt(client):
+    response = client.post(
+        "/v1/decks",
+        files={"file": ("legacy.ppt", b"old binary", "application/octet-stream")},
+    )
+    assert response.status_code == 400
+    detail = response.json()["detail"]
+    assert "pptx" in detail
+    assert "Save As" in detail
+
+
+def _upload_bytes(client, name: str, data: bytes, mime: str):
+    return client.post("/v1/decks", files={"file": (name, data, mime)})
+
+
+def _tiny_pdf_bytes(tmp_path) -> bytes:
+    import pymupdf
+
+    path = tmp_path / "built.pdf"
+    doc = pymupdf.open()
+    for _ in range(2):
+        page = doc.new_page(width=960, height=540)
+        page.insert_text((72, 100), "Quarterly Review", fontsize=24, fontname="hebo")
+    doc.save(str(path))
+    doc.close()
+    return path.read_bytes()
+
+
+def test_upload_accepts_pdf_and_extracts_it(client, tmp_path):
+    response = _upload_bytes(
+        client, "report.pdf", _tiny_pdf_bytes(tmp_path), "application/pdf"
+    )
+    assert response.status_code == 202, response.text
+    created = response.json()
+
+    job = _wait_for_job(client, created["job_id"])
+    assert job["status"] == "completed", job
+    assert job["result"]["slide_count"] == 2
+
+    deck = client.get(f"/v1/decks/{created['deck_id']}").json()
+    assert deck["status"] == "completed"
+    assert deck["source_name"] == "report.pdf"
+
+    guide = StyleGuide.model_validate_json(
+        (config.STYLE_GUIDES_DIR / f"{created['deck_id']}.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert guide.source_file_type == ".pdf"
+
+
+def test_upload_accepts_png_and_extracts_it(client, tmp_path):
+    import pymupdf
+
+    png_path = tmp_path / "hero.png"
+    pix = pymupdf.Pixmap(pymupdf.csRGB, pymupdf.IRect(0, 0, 320, 180))
+    pix.set_rect(pix.irect, (0x0E, 0x0E, 0x10))
+    pix.save(str(png_path))
+
+    response = _upload_bytes(
+        client, "hero.png", png_path.read_bytes(), "image/png"
+    )
+    assert response.status_code == 202, response.text
+    created = response.json()
+
+    job = _wait_for_job(client, created["job_id"])
+    assert job["status"] == "completed", job
+    assert job["result"]["slide_count"] == 1
+
+    deck = client.get(f"/v1/decks/{created['deck_id']}").json()
+    assert deck["status"] == "completed"
+
+    guide = StyleGuide.model_validate_json(
+        (config.STYLE_GUIDES_DIR / f"{created['deck_id']}.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert guide.source_file_type == ".png"
+    assert all(entry.provenance == "measured" for entry in guide.palette)
+
+
 def test_upload_rejects_empty_file(client):
     response = client.post(
         "/v1/decks",

@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 PROVENANCE_NATIVE = "native"
 PROVENANCE_VISION = "vision"
 PROVENANCE_DEFAULT = "default"
+PROVENANCE_MEASURED = "measured"
 
 
 class PaletteEntry(BaseModel):

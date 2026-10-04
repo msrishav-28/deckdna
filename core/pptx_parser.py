@@ -57,7 +57,7 @@ _THEME_ROLE_BY_ENUM_NAME = {
 
 
 class DeckParseError(Exception):
-    """Raised when a file cannot be parsed as a .pptx deck."""
+    """Raised when a source file cannot be parsed into a DeckInventory."""
 
 
 class DeckParser:

@@ -1,8 +1,10 @@
 """Style-guide extraction (blueprint §6): turn a parsed DeckInventory into a
-StyleGuide using native file data only.
+StyleGuide using native file data only, plus measured-pixel colours for
+sources that declare none (PDF, PNG). Measured colours carry their own
+provenance and a warning; they are never mixed silently with native facts.
 
 All rules are deterministic and documented where they are not obvious.
-Anything the native data cannot support stays None with a warning instead of
+Anything the data cannot support stays None with a warning instead of
 a guess. Vision notes, when supplied, are merged in with explicit vision
 provenance — never silently mixed with native facts.
 """
@@ -19,6 +21,7 @@ from typing import Dict, List, Optional, Sequence, Tuple
 
 from core.schemas import ColorInfo, DeckInventory, ShapeRecord, TextRun
 from core.style_guide import (
+    PROVENANCE_MEASURED,
     PROVENANCE_NATIVE,
     PROVENANCE_VISION,
     ContentRules,
@@ -103,6 +106,10 @@ class StyleGuideExtractor:
         warnings.extend(rule_warnings)
 
         source_path = Path(inventory.source_file)
+        if source_path.is_dir():
+            source_type = "image_folder"
+        else:
+            source_type = source_path.suffix.lower() or "unknown"
         layout_grid = LayoutGrid(
             slide_width_px=inventory.slide_size.width_px,
             slide_height_px=inventory.slide_size.height_px,
@@ -126,7 +133,7 @@ class StyleGuideExtractor:
             deck_id=self._deck_id(source_path),
             deck_name=source_path.stem or "deck",
             extracted_at=datetime.now(timezone.utc).isoformat(),
-            source_file_type=source_path.suffix.lower() or "unknown",
+            source_file_type=source_type,
             source_slide_count=inventory.slide_count,
             aspect_ratio=inventory.slide_size.aspect_ratio,
             palette=palette,
@@ -151,9 +158,11 @@ class StyleGuideExtractor:
     ) -> Tuple[List[PaletteEntry], List[str]]:
         warnings: List[str] = []
         backgrounds: Counter = Counter()
+        measured_backgrounds: Counter = Counter()
         fills: Counter = Counter()
         lines: Counter = Counter()
         texts: Counter = Counter()
+        measured: Counter = Counter()
         unresolved = 0
 
         for slide in inventory.slides:
@@ -163,6 +172,21 @@ class StyleGuideExtractor:
                     backgrounds[hex_color] += 1
                 else:
                     unresolved += 1
+            # Measured colours arrive ordered by frequency: the first colour
+            # of a slide is its dominant surface, the rest are candidates for
+            # primary/accent. All of it is pixel measurement, not file data.
+            measured_hexes = [
+                hex_color
+                for hex_color in (
+                    _resolved_hex(color, inventory)
+                    for color in slide.measured_colors
+                )
+                if hex_color
+            ]
+            if measured_hexes:
+                measured_backgrounds[measured_hexes[0]] += 1
+                for hex_color in measured_hexes[1:]:
+                    measured[hex_color] += 1
             for shape in slide.shapes:
                 for counter, color in (
                     (fills, shape.fill_color),
@@ -193,8 +217,16 @@ class StyleGuideExtractor:
             return [], ["Deck has no slides; palette is empty."]
 
         totals: Counter = Counter()
-        for counter in (backgrounds, fills, lines, texts):
+        for counter in (backgrounds, measured_backgrounds, fills, lines, texts, measured):
             totals.update(counter)
+
+        measured_keys = set(measured_backgrounds) | set(measured)
+        if measured_keys:
+            warnings.append(
+                f"{len(measured_keys)} palette colour(s) were measured from "
+                "rendered pixels rather than declared in the file; their usage "
+                "labels are heuristics."
+            )
 
         assigned: Dict[str, str] = {}
 
@@ -206,6 +238,8 @@ class StyleGuideExtractor:
             _, saturation, value = _hex_to_hsv(hex_color)
             if saturation < NEUTRAL_SATURATION_MAX and value >= LIGHT_VALUE_MIN:
                 assigned[hex_color] = USAGE_BACKGROUND
+        for hex_color in sorted(measured_backgrounds):
+            assigned.setdefault(hex_color, USAGE_BACKGROUND)
 
         unassigned = [hex_color for hex_color in totals if hex_color not in assigned]
         saturated = [
@@ -247,12 +281,17 @@ class StyleGuideExtractor:
         ordered = sorted(
             assigned.items(), key=lambda item: (usage_order[item[1]], -totals[item[0]], item[0])
         )
+        native_keys = set(backgrounds) | set(fills) | set(lines) | set(texts)
         palette = [
             PaletteEntry(
                 hex=hex_color,
                 usage=usage,
                 frequency=totals[hex_color],
-                provenance=PROVENANCE_NATIVE,
+                provenance=(
+                    PROVENANCE_MEASURED
+                    if hex_color in measured_keys and hex_color not in native_keys
+                    else PROVENANCE_NATIVE
+                ),
             )
             for hex_color, usage in ordered
         ]

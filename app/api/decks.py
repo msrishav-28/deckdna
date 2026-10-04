@@ -1,6 +1,6 @@
 """Deck upload and inspection endpoints (blueprint section 13):
 
-POST /v1/decks       upload a .pptx, start learning its style
+POST /v1/decks       upload a .pptx, .pdf, or .png source, start learning its style
 GET  /v1/decks/{id}  extraction status and counts for one deck
 GET  /v1/jobs/{id}   stage, progress and result for one background job
 """
@@ -20,6 +20,7 @@ from app.extraction import submit_extraction
 router = APIRouter()
 
 _CHUNK_BYTES = 1024 * 1024
+_ALLOWED_SUFFIXES = {".pptx", ".pdf", ".png"}
 
 
 def _safe_name(name: str) -> str:
@@ -44,11 +45,13 @@ def _job_summary(job: dict) -> dict:
 @router.post("/v1/decks", status_code=202)
 async def create_deck(request: Request, file: UploadFile) -> dict:
     name = _safe_name(file.filename or "")
-    if Path(name).suffix.lower() != ".pptx":
+    suffix = Path(name).suffix.lower()
+    if suffix not in _ALLOWED_SUFFIXES:
         raise HTTPException(
             status_code=400,
-            detail="Only .pptx decks can be uploaded (this file looks like "
-            f"'{Path(name).suffix or 'no extension'}').",
+            detail="Upload a .pptx, .pdf, or .png source (this file looks like "
+            f"'{suffix or 'no extension'}'). Legacy .ppt files are not supported; "
+            "open them in PowerPoint and use Save As .pptx, or export a PDF.",
         )
 
     deck_id = f"deck_{uuid.uuid4().hex[:12]}"

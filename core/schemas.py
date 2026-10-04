@@ -93,6 +93,10 @@ class SlideInventory(BaseModel):
     layout_name: str
     background_color: Optional[ColorInfo] = None
     background_note: Optional[str] = None
+    # Colours measured from rendered pixels (PDF pages, PNG input). Used by
+    # parsers whose sources declare no native colour data; downstream code
+    # labels these as measured, never as authored facts.
+    measured_colors: List[ColorInfo] = Field(default_factory=list)
     shapes: List[ShapeRecord] = Field(default_factory=list)
     warnings: List[str] = Field(default_factory=list)
 

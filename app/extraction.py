@@ -8,8 +8,8 @@ from __future__ import annotations
 from pathlib import Path
 
 from core.extractor import StyleGuideExtractor
-from core.pptx_parser import DeckParser
 from core.slide_classifier import SlideClassifier
+from core.source_parser import parse_source
 from core.templates import build_templates, save_templates
 
 from app import config, db
@@ -18,7 +18,7 @@ from app.jobs import JobQueue, ProgressReporter
 
 def run_extraction(deck_id: str, source_path: Path, report: ProgressReporter) -> dict:
     report("parsing", 10)
-    inventory = DeckParser().parse(source_path)
+    inventory = parse_source(source_path)
     report("classifying", 40)
     classifications = SlideClassifier().classify_deck(inventory)
     report("building_templates", 65)

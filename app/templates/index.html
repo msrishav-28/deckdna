@@ -4,12 +4,15 @@
 <section class="card">
   <h1>Start from a deck you already like</h1>
   <p class="lede">
-    Upload a .pptx file. DeckDNA reads its design — colors, fonts, spacing,
-    layouts — and learns a style guide you can inspect and edit. It can then
-    generate new decks in that style, as editable PowerPoint.
+    Upload a .pptx, .pdf, or .png source (a single .png works as a one-slide
+    deck). DeckDNA reads its design — colors, fonts, spacing, layouts — and
+    learns a style guide you can inspect and edit. It can then generate new
+    decks in that style, as editable PowerPoint. PDFs and images carry no
+    native design data, so their colors are measured from pixels and their
+    fonts are recorded as unknown.
   </p>
   <form id="upload-form" class="row-form">
-    <input type="file" id="deck-file" name="file" accept=".pptx" required>
+    <input type="file" id="deck-file" name="file" accept=".pptx,.pdf,.png" required>
     <button type="submit" id="upload-button">Upload and learn</button>
   </form>
   <p id="upload-error" class="error-box" hidden></p>

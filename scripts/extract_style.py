@@ -1,12 +1,12 @@
-"""Learn a deck's style: parse a .pptx, classify its slides, extract a
-style guide and a template library. Optional vision enrichment when
-rendered slide images and a Gemini API key are available."""
+"""Learn a deck's style: parse a source (.pptx, .pdf, .png, or a folder of
+.png slide images), classify its slides, extract a style guide and a
+template library. Optional vision enrichment when rendered slide images
+and a Gemini API key are available."""
 
 from __future__ import annotations
 
 import argparse
 import logging
-import re
 import sys
 from pathlib import Path
 from typing import List
@@ -14,8 +14,10 @@ from typing import List
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from core.extractor import StyleGuideExtractor
-from core.pptx_parser import DeckParseError, DeckParser
+from core.pptx_parser import DeckParseError
+from core.raster_parser import sorted_slide_images
 from core.slide_classifier import SlideClassifier
+from core.source_parser import parse_source
 from core.templates import build_templates, save_templates
 from core.vision import (
     GeminiVisionProvider,
@@ -25,20 +27,10 @@ from core.vision import (
 )
 
 
-def _sorted_slide_images(slides_dir: Path) -> list:
-    def number_in(path: Path):
-        digits = re.findall(r"\d+", path.stem)
-        return (int(digits[-1]) if digits else 0, path.name.lower())
-
-    return sorted(
-        (p for p in slides_dir.iterdir() if p.suffix.lower() == ".png"), key=number_in
-    )
-
-
 def _vision_notes(
     inventory, slides_dir: Path, provider: GeminiVisionProvider
 ) -> List[SlideVisionNotes]:
-    images = _sorted_slide_images(slides_dir)
+    images = sorted_slide_images(slides_dir)
     if len(images) != inventory.slide_count:
         raise VisionProviderError(
             f"{slides_dir} holds {len(images)} PNG image(s) but the deck has "
@@ -52,7 +44,11 @@ def _vision_notes(
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--input", required=True, help="Path to a .pptx file")
+    ap.add_argument(
+        "--input",
+        required=True,
+        help="Path to a .pptx, .pdf, or .png file, or a folder of .png slide images",
+    )
     ap.add_argument(
         "--output",
         default=None,
@@ -86,17 +82,20 @@ def main() -> int:
     )
 
     try:
-        inventory = DeckParser().parse(source)
+        inventory = parse_source(source)
     except DeckParseError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1
 
     notes = None
     if args.use_vision:
-        if not args.slides_dir:
+        slides_dir = Path(args.slides_dir) if args.slides_dir else None
+        if slides_dir is None and source.is_dir():
+            slides_dir = source
+        if slides_dir is None:
             print(
                 "ERROR: --use-vision needs --slides-dir (render first with "
-                "scripts/render_deck.py).",
+                "scripts/render_deck.py). A folder of .png images is used as-is.",
                 file=sys.stderr,
             )
             return 1
@@ -111,7 +110,7 @@ def main() -> int:
             )
             return 1
         try:
-            notes = _vision_notes(inventory, Path(args.slides_dir), provider)
+            notes = _vision_notes(inventory, slides_dir, provider)
         except VisionProviderError as exc:
             print(f"ERROR: {exc}", file=sys.stderr)
             return 1
