@@ -56,7 +56,10 @@ DEFAULT_FONT_PT = {
 
 SLOT_PREFERENCES = {
     "title": (ROLE_TITLE,),
-    "subtitle": (ROLE_BODY,),
+    # Title and divider templates often carry no body slot; their label slot
+    # is where the source design puts subtitle-like text, so prefer it over
+    # the generic fallback box, which can collide with the learned title slot.
+    "subtitle": (ROLE_BODY, ROLE_LABEL),
     "stat": (ROLE_STAT, ROLE_BODY),
     "quote": (ROLE_QUOTE, ROLE_BODY, ROLE_LABEL),
 }

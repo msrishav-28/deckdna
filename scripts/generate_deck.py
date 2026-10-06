@@ -176,6 +176,23 @@ def main() -> int:
         return 1
 
     deck = generate_deck(brief, templates, style_guide, text_provider=provider)
+    if not deck.slides:
+        print(
+            "ERROR: no slides could be planned from these templates, so there "
+            "is no deck to write.",
+            file=sys.stderr,
+        )
+        for warning in deck.warnings:
+            print(f"  {warning}", file=sys.stderr)
+        print(
+            "Generating a deck needs typed text in the source: slide images "
+            "(.png) and PDFs whose pages are images carry none, so every "
+            "template learned from them holds only a picture placeholder. "
+            "Learn the style from a .pptx, or from a PDF with a real text "
+            "layer, instead.",
+            file=sys.stderr,
+        )
+        return 1
 
     out_dir = Path(args.output_dir) if args.output_dir else Path("output") / "generated"
     name = args.name or _slug(deck.plan.deck_title) or _slug(args.topic)

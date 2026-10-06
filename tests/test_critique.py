@@ -2,11 +2,11 @@
 
 The critique loop inspects a generated deck the way the estimators see
 it, applies a small bounded set of layout fixes (never facts), and
-persists before/after evidence. These tests pin: fix application and
-clamping in the shared layout planner, the deterministic audit, the fix
-planner's safety rules, loop termination, fact preservation, and the
-optional vision path with a mock provider and with the real Gemini
-adapter over a fake HTTP transport.
+persists before/after evidence. These tests pin: slot selection, fix
+application and clamping in the shared layout planner, the deterministic
+audit, the fix planner's safety rules, loop termination, fact
+preservation, and the optional vision path with a mock provider and with
+the real Gemini adapter over a fake HTTP transport.
 """
 
 from __future__ import annotations
@@ -35,6 +35,7 @@ from core.generation import (
     SlideContent,
     SlideFix,
     StatBlock,
+    SubtitleBlock,
 )
 from core.html_renderer import render_deck_html
 from core.layout import plan_slide
@@ -46,6 +47,7 @@ from core.style_guide import (
 )
 from core.templates import (
     ROLE_BODY,
+    ROLE_LABEL,
     TemplateRecord,
     TemplateSlot,
 )
@@ -311,6 +313,63 @@ class TestSlideFixes:
             SlideFix(element_id="slide_01-body", font_scale=1.5)
         with pytest.raises(ValueError):
             SlideFix(element_id="slide_01-body", dx=0.9)
+
+
+# -- slot selection in the layout planner -----------------------------------
+
+
+class TestSubtitleSlotPreference:
+    """Title templates in real decks often carry no body slot; the subtitle
+    must land in the template's own label slot rather than a generic fallback
+    box, which can collide with the learned title slot."""
+
+    def test_subtitle_uses_the_label_slot_when_no_body_slot_exists(self):
+        template = _template(
+            "title",
+            "tpl_title",
+            [
+                _slot("title", x=0.062, y=0.259, w=0.625, h=0.185, size=44.0),
+                _slot(ROLE_LABEL, x=0.065, y=0.463, w=0.521, h=0.074, size=20.0),
+            ],
+        )
+        slide = SlideContent(
+            slide_id="slide_01",
+            slide_number=1,
+            slide_type="title",
+            template_id="tpl_title",
+            title="AI adoption roadmap for a university",
+            content=[SubtitleBlock(text="Approve a two-year plan")],
+        )
+        boxes, warnings = plan_slide(slide, template, _style_guide())
+        assert warnings == []
+        subtitle = next(b for b in boxes if b.element_id == "slide_01-subtitle")
+        assert subtitle.slot.y == pytest.approx(0.463)
+        assert subtitle.slot.height == pytest.approx(0.074)
+        assert subtitle.font_pt == pytest.approx(20.0)
+        title = next(b for b in boxes if b.element_id == "slide_01-title")
+        assert subtitle.slot.y >= title.slot.y + title.slot.height
+
+    def test_body_slot_still_wins_when_both_exist(self):
+        template = _template(
+            "title",
+            "tpl_title",
+            [
+                _slot("title", y=0.05, h=0.15, size=40.0),
+                _slot(ROLE_BODY, y=0.30, h=0.20, size=20.0),
+                _slot(ROLE_LABEL, y=0.60, h=0.10, size=18.0),
+            ],
+        )
+        slide = SlideContent(
+            slide_id="slide_01",
+            slide_number=1,
+            slide_type="title",
+            template_id="tpl_title",
+            title="Topic",
+            content=[SubtitleBlock(text="A subtitle")],
+        )
+        boxes, _ = plan_slide(slide, template, _style_guide())
+        subtitle = next(b for b in boxes if b.element_id == "slide_01-subtitle")
+        assert subtitle.slot.y == pytest.approx(0.30)
 
 
 # -- the deterministic audit ------------------------------------------------

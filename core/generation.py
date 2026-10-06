@@ -697,5 +697,8 @@ def generate_deck(
         slides=slides,
         style_guide_id=style_guide.deck_id,
         generator="gemini" if content_from_llm else "deterministic",
-        warnings=plan_warnings + content_warnings,
+        # the plan object carries its own planning warnings (shortfall,
+        # repeating layouts); dropping them would hide the reason a deck came
+        # out shorter than requested from every CLI caller
+        warnings=list(plan.warnings) + plan_warnings + content_warnings,
     )

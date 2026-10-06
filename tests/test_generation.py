@@ -429,3 +429,7 @@ class TestGenerateDeck:
         )
         assert deck.slides == []
         assert deck.plan.warnings
+        # the planner's own warnings are what the CLIs print, so an empty or
+        # short deck must never look like a clean success
+        for warning in deck.plan.warnings:
+            assert warning in deck.warnings
