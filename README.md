@@ -27,7 +27,7 @@ A self-hosted AI presentation generator that learns your design style from your 
 
 ## What is planned next
 
-All MVP milestones (0 through 7) are implemented, along with multi-format source ingestion (`.pdf`, `.png`, and folders of slide images, in both the web app and the CLI) and a single-command end-to-end demo (`scripts/demo.py`) that saves every intermediate artifact and prints an evidence panel. Validation on real designs is under way: the two real design sets available so far are image-only (folders of `.png` slides), so they yield a measured palette and layout geometry but no typed text slots, which is not enough to generate from — full-fidelity validation needs the original `.pptx` files. What remains is that validation — the definition-of-success demo in the blueprint: run the full flow on real client decks, confirm the generated decks are coherent and the exported `.pptx` is editable, and use what that surfaces to drive hardening and packaging — followed by the full project documentation phase. See the blueprint for the complete architecture and milestone order.
+All MVP milestones (0 through 7) are implemented, along with multi-format source ingestion (`.pdf`, `.png`, and folders of slide images, in both the web app and the CLI) and a single-command end-to-end demo (`scripts/demo.py`) that saves every intermediate artifact and prints an evidence panel. Validation on real designs is under way: the two real design sets available so far are image-only (folders of `.png` slides), so they yield a measured palette and layout geometry but no typed text slots, which is not enough to generate from — full-fidelity validation needs the original `.pptx` files. What remains is that validation — the definition-of-success demo in the blueprint: run the full flow on real client decks, confirm the generated decks are coherent and the exported `.pptx` is editable, and use what that surfaces to drive hardening and packaging. The full project documentation lives in [docs/](docs/README.md). See the blueprint for the complete architecture and milestone order.
 
 ## Setup
 
@@ -82,6 +82,22 @@ output/               Generated JSON and decks (never committed)
 style_guides/         Extracted style guides (never committed)
 temp/                 Scratch space (never committed)
 ```
+
+## Documentation
+
+The full project documentation is in [docs/](docs/README.md):
+
+- [Architecture](docs/architecture.md) — system map, layer responsibilities, and where each rule lives
+- [Pipeline](docs/pipeline.md) — the nine stages from source file to finished deck
+- [Data model](docs/data-model.md) — every stored artifact, its fields, and provenance markers
+- [Using the CLI](docs/cli.md) — one page per script, with real flags and defaults
+- [Using the web app](docs/web-app.md) — pages and the `/v1` JSON API
+- [Style learning](docs/style-learning.md) — what is learned from each source type and what is not
+- [Generation and critique](docs/generation-and-critique.md) — content guarantees and the bounded repair loop
+- [Configuration](docs/configuration.md) — environment variables, paths, and limits
+- [Testing](docs/testing.md) — suite map and how to run it
+- [Security and privacy](docs/security-and-privacy.md) — what leaves the machine and when
+- [Status and roadmap](docs/status-and-roadmap.md) — what is implemented, prototyped, or planned
 
 ## License
 
